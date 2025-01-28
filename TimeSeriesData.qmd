@@ -1,0 +1,89 @@
+---
+title: "TimeSeriesData"
+format: pdf
+---
+
+
+```{r}
+source("clarkFunctions2025.r")
+```
+
+```{r}
+time2radians <- function( time, period )time/period*2*pi
+
+period1 <- 2*pi/24   # period 24 and 6 in radians
+period2 <- 2*pi/6
+  
+time    <- seq( 0, 300, by = .1)
+radians <- time2radians( time, 24 )
+
+y1 <- sin( period1*radians )
+y2  <- sin( period2*radians )
+plot( time/24, 1*y1 + .5*y2, type = 'l', bty = 'n', ylab = 'y' )
+lines( time/24, y1, col = 2 )
+lines( time/24, y2, col = 3 )
+```
+
+```{r}
+antarctic <- read.table(
+  'https://www1.ncdc.noaa.gov/pub/data/paleo/icecore/antarctica/antarctica2015co2composite.txt',
+  skip = 138 )
+```
+
+```{r}
+colnames(antarctic) <- c('BP', 'co2ppm', 'uncertainty')
+antarctic$LRyears <- 1950-antarctic$BP
+
+plot(antarctic$LRyears, antarctic$co2ppm, type = 'l')
+```
+
+```{r}
+years <- seq( min(antarctic$LRyears), max(antarctic$LRyears), by = 5000 )
+iy    <- findInterval( antarctic$LRyears, years, all.inside = T )       
+wt    <- 1/(antarctic$LRyears - years[iy] + .001)^2     # time difference from closest yr
+numerator   <- tapply( antarctic$co2ppm*wt, iy, sum )
+denominator <- tapply( wt, iy, sum )
+cs    <- numerator/denominator
+years <- years[-1] - diff(years)[1]
+
+plot( antarctic$LRyears/1000, antarctic$co2ppm, type = 'l', xlab = 'Ky LRyears',
+      ylab = 'CO2 ppm', bty = 'n', las = 1 )
+lines( years/1000, cs, lwd = 2, col = 2 )
+```
+
+
+```{r}
+trend <- lm( cs ~ years )      # detrend data
+yhat  <- predict( trend )
+cnew  <- cs - yhat
+
+par( mfrow = c(2,1), mar = c( 2,5,1,2 ), omi = c( .7, .5, .1, .1), bty = 'n' )
+plot( years, cs, cex = .5, xaxt = 'n', xlab = '', ylab = 'Raw data' )
+lines( years, yhat )
+plot( years, cnew, type = 'l', ylab = 'Detrended data' )
+abline( h = 0, lty = 2, col = 'grey' )
+mtext( 'Year BP', 1, outer = T )
+```
+
+```{r}
+time <- diff( years )[1]
+afreq <- length(cnew)/time
+X.k <- fft( cnew )                   # find all harmonics with fft()
+milankovitch <- c( 100000, 41000, 26000)
+plotSpectrum( X.k, afreq/1000, xlim = c(0,150)*1000 )
+abline( v = milankovitch, col = 'grey', lwd = 2, lty = 2 )
+```
+
+
+```{r, warning=F}
+ts  <- seq( 0, time - 1/afreq, 1/afreq )       # time sequence on sample frequency scale
+xn5  <- predictTrajectory( X.k, ts, afreq, time, nh = 4 )
+xn50 <- predictTrajectory( X.k, ts, afreq, time, nh = 40 )
+plot( years, cnew,  type = 'l', col = 'grey', bty = 'n' )   # compare with original 
+lines( ts*afreq*time, xn5, col = 2 )
+
+lines( ts*afreq*time, xn50, col = 3 )
+
+abline( h=0, lty=2, lwd = 2, col = 'grey' )
+```
+

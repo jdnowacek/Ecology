@@ -22,7 +22,11 @@ mauna_loa_weekly <- mauna_loa_weekly[, c(1, 2, 3, 5)]
 
 names(mauna_loa_weekly) <- c('year', 'month', 'day', 'co2ppm')
 
-mauna_loa_weekly$date <- as.Date(paste(mauna_loa_weekly$year, mauna_loa_weekly$month, mauna_loa_weekly$day, sep = '-'), format = '%Y-%m-%d')
+mauna_loa_weekly$date <- 
+  as.Date(paste(mauna_loa_weekly$year, 
+                mauna_loa_weekly$month, 
+                mauna_loa_weekly$day, 
+                sep = '-'), format = '%Y-%m-%d')
 
 mauna_loa_weekly <- mauna_loa_weekly[, c('date', 'co2ppm')]
 
@@ -64,7 +68,8 @@ ggplot(data = mauna_loa_weekly, aes(date, co2ppm)) +
   xlab('Date') +
   ylab('CO2 Concentration PPM') + 
   ggtitle('Mauna Loa Weekly Carbon Dioxide Concentration') +
-  stat_smooth(method = lm, color = 'dark blue')
+  stat_smooth(method = lm, color = 'dark blue') +
+  theme_bw()
 ```
 
 ```{r}
@@ -78,7 +83,8 @@ ggplot(data = mauna_loa_weekly %>% subset(year(date) == 2015), aes(date, co2ppm)
   geom_line() +
   xlab('Date') +
   ylab('CO2 Concentration PPM') + 
-  ggtitle('Mauna Loa Weekly Carbon Dioxide Concentration')
+  ggtitle('Mauna Loa Weekly Carbon Dioxide Concentration') +
+  theme_bw()
 ```
 
 ```{r}
