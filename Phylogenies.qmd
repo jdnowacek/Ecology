@@ -1,0 +1,96 @@
+---
+title: "Phylogenies"
+format: pdf
+---
+
+# **Phylogenies**
+
+A phylogram offers a visual summary of relatedness and evolutionary history. A number of packages in R provide tools for manipulating phylogenies.
+
+The standard storage format for a phylogeny is a `.tre` file. Here are several packages that can be used to draw a phylogram of plants.
+
+```{r}
+library( ape )
+library( phytools )
+library( plotrix )
+source("~/Documents/Duke/Semesters/Spring 25/Ecology/Ecology/clarkFunctions2025.R")
+```
+
+Here I read in the phylogeny and a file with families. I then use the `function plot.phylo` to draw a tree at the family level with a legend that identifies groups:
+
+```{r}
+tree <- read.tree( 'plantFamily.tre' )
+fams <- read.csv( 'plantFamily.csv' )
+
+par( mar = c(1, 4, .3, .4), omi = c(0, .3, .1, 0) )
+plot.phylo(tree, cex = .4, tip.color = fams$col, node.color = fams$col,
+           edge.width = 1.2, direction = 'upwards' )
+axisPhylo( side = 2 )
+
+leg  <- fams$group[ !duplicated( fams$col ) ]
+cols <- fams$col[ !duplicated( fams$col ) ]
+legend( 'bottomright', legend = leg, text.col = cols, bty = 'n', cex = .95 )
+mtext( 'Mya', 2, line = 3 )
+```
+
+**Exercise 1**: When did the majority of modern gymnosperm families diverge? Compare it with angiosperms and describe climate and continents at these times.
+
+The modern gymnosperm families diverged during the Permian and early Triassic periods. Pangaea existed at the start of this time period and was breaking up towards the 150 million years ago mark. The climate during this time was relatively cool, with occasional mega monsoons.
+
+Most of the angiosperm families diverged during the Cretaceous period, after the split between Gondwana and laurasia, just as Gondwana was breaking up. The climate at this time was very warm and humid.
+
+```{r}
+tree <- read.tree( 'phyloAfroBigMammals.tre' )
+gens <- read.csv(  'phyloAfroBigMammals.csv' )
+
+# orders with megaherbivores at KNP
+include <- c( 'Perissodactyla', 'Artiodactyla', 'Proboscidea', 'Carnivora', 'Primates' )
+
+ww <- which( gens$order %in% include )
+wn <- which( !gens$order %in% include )
+gens <- gens[ww,]
+tree <- drop.tip( tree, wn )              # drop the tips that are not in include
+
+ww <- which( !duplicated( gens$genus ) )  # only one species per genus
+wn <- which( duplicated( gens$genus ) )
+gens <- gens[ww,]
+tree <- drop.tip( tree, wn )
+tree$tip.label <- gens$genus
+
+ords <- table( gens$order )               # assign colors to orders
+cols <- colorRampPalette( colContrast )(length(ords))
+names( cols ) <- names( ords )
+col  <- cols[ gens$order ]
+
+par( mar = c(1, 4, .3, .4), omi = c(0, .3, .1, 0) )
+plot.phylo(tree, cex = .6, tip.color = col, node.color = col, 
+           edge.width = 1.2, direction = 'upwards' )
+axisPhylo( side = 2 )
+
+legend( 'topleft', legend = names( cols ), text.col = cols, bty = 'n', cex = .9 )
+mtext( 'Mya', 2, line = 3 )
+```
+
+**Exercise 2**: When did odd-toed and even-toed ungulates diverge? What era was this? When did most of modern ungulates diverge? What was the climate and relationship of Africa to other continents at that time?
+
+Sixty million years ago, the Paleogene, most of the ungulates diverged in the 20-30 million years ago range. Africa was fully separated from the other continents by this time, and was warm wet and covered with dense forests.
+
+**Exercise 3**: When did carnivores diverge from ungulates? From elephants? From primates? Which modern continents were connected to Africa at those times?
+
+The carnivores diverged from the ungulates around 100 million years ago, at that time, Africa was in pieces and not connected to the other continents.
+
+They diverged from elephants around 140 millions years ago, at this point, Gondwana was still together so South America was still attached to Africa.
+
+They diverged from primates around the same time, just after the divergence with the elephant group. So again, Gondwana was still together.
+
+**Exercise 4**: There are many species of deer (Cervidae) in the New World and Eurasia. Despite all the ungulates in Africa, why no cervids?
+
+Cervids originated sometime in the miocene in eurasia, the continent of africa was either disconnected from Eurasia or just colliding with it making interchange difficult. That and the competition from other ungulates already well established in Africa means that cervids would have had a difficult time getting a foothold. With massive reaches of land in asia, there was no geographic pressure forcing the group into africa.
+
+**Exercise 5**: What’s going on with hippo?
+
+After the split that gave rise to the marine mammal and terrestrial ungulate groups, right before the large diversification of the aquatic group, the hippopotamus group split from the aquatic side, about 25 million years ago. It is much closer to a marine mammal in terms of divergence time than it is to any terrestrial ungulate.
+
+**Exercise 6**: Are Hyenas dogs or cats? When did these groups diverge?
+
+Hyenas are closer to the feline group than the canines but are neither cats or dogs really. Feline and Canine groups diverged around 40 millions years ago.

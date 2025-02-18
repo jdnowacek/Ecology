@@ -1,5 +1,104 @@
+colRed2Blu <- c('#67001f','#b2182b','#d6604d','#f4a582','#fddbc7','white',
+                '#d1e5f0','#92c5de','#4393c3','#2166ac','#053061')
+colContrast <- c('#1f78b4','#33a02c','#e31a1c',
+                 '#ff7f00','#6a3d9a','#b15928')
 
 
+colorScaleLegend <- function( xleg, yleg = NULL, zlim, 
+                              zlimLabs = zlim, box = T,
+                              xlim = NULL, ylim = NULL, ncol = 20, units = '',
+                              colorRamp, textColor = NULL, cex = 1.2 ){
+  
+  xchar <- max( strwidth( zlimLabs ) )
+  
+  xusr <- par('usr')[1:2]
+  yusr <- par('usr')[3:4]
+  
+  if( is.null( xlim ) )xlim <- xusr
+  if( is.null( ylim ) )ylim <- yusr
+  
+  dx <- diff( xlim )
+  dy <- diff( ylim )
+  
+  tpos <- 2
+  xtext <- xlim[2] - dx/150
+  
+  if( is.character( xleg ) ){
+    pos <- c('bottomleft', 'bottomright','topleft','topright')
+    if( !xleg %in% pos )
+      stop( paste( 'legend position must be:', paste0( pos, collapse = ', ' ) ) )
+    
+    xwide <- dx/25
+    yhigh <- dy/2
+    
+    pos <- xleg
+    
+    xleg  <- xlim[1] + c(-2*xwide, -xwide ) # bottomleft
+    yleg  <- ylim[1] + c(0, yhigh )
+    tpos  <- 4                              # right of scale
+    xtext <- xleg[2] + dx/150
+    
+    if( pos == 'topleft' )yleg <- ylim[2] + c(-yhigh, -yhigh/5 )
+    
+    if( xusr[1] < xlim[1] ){
+      xleg <- xleg - xwide
+      xtext <- xtext - xwide
+    }
+    
+    if( pos == 'bottomright' ){
+      xleg <- xlim[2] + c(0, xwide )
+      yleg <- ylim[1] + c(0, yhigh )
+      tpos <- 2                     # left of scale
+      xtext <- xlim[2] - dx/150
+      if( xusr[2] > xlim[2] ){
+        xleg <- xleg + xwide
+        xtext <- xtext + xwide
+      }
+    }
+    if( pos == 'topright' ){
+      xleg <- xlim[2] + c(0, xwide )
+      yleg <- ylim[2] + c( -yhigh, 0 )
+      tpos <- 2                     # left of scale
+      xtext <- xleg[1] - dx/150
+      if( xusr[2] > xlim[2] ){
+        xleg <- xleg + xwide
+        xtext <- xtext + xwide
+      }
+    }
+  }else{
+    lpos <- 'left'
+    xtext <- xleg[2] + xtext
+    if( xleg[1] > (xlim[1] + dx/2) ){
+      lpos <- 'right'
+      xtext <- xleg[1] - dx/150 
+    }
+  }
+  
+  xbox <- xleg
+  ybox <- yleg + dy/20*c(-1, 1)
+  if( nchar( units ) > 0 )ybox[2] <- ybox[2] + dy/20
+  if( tpos == 2 )xbox[1] <- xbox[1] - xchar - dx/10
+  if( tpos == 4 )xbox[2] <- xbox[2] + xchar + dx/10
+  
+  lcol <- colorRampPalette(colorRamp)( ncol )
+  zseq <- seq( yleg[1], yleg[2], length = ncol + 1 )
+  
+  par( xpd = T )
+  
+  if( box )rect( xbox[1], ybox[1], xbox[2], ybox[2], col = 'white', border = NA )
+  for( i in 1:ncol ){
+    yi <- zseq[i:(i+1)]
+    rect(xleg[1], yi[1], xleg[2], yi[2], col = lcol[i], border = NA )
+  }
+  
+  if( is.null( textColor ) )textColor <- colorRampPalette(colorRamp)( 2 )
+  text( rep( xtext, 2 ), yleg, zlimLabs, pos = tpos, col = textColor, 
+        cex = cex )
+  
+  if( nchar( units ) > 0 )text( mean( xleg ), yleg[2] + diff(yleg)/3, units,
+                                cex = cex )
+  par( xpd = F )
+}
 getMunicipality <- function(lonLat, collapse = T){
   
   require(revgeo)
@@ -3203,8 +3302,8 @@ points2grid <- function( x, y, z, FUN = 'mean', nx = 50, ny = 50,
 }
 
 
-predictTrajectory <- function( x, ts, afreq, time, nh = length( ts ),
-                               verbose = F ) {
+predictTrajectory <- function( x, ts, afreq, time, nh = length( ts ), 
+                               periods = NULL, verbose = F ) {
   
   # x     - vector returned by stats::fft
   # nh - number of terms used for prediction
@@ -3215,6 +3314,14 @@ predictTrajectory <- function( x, ts, afreq, time, nh = length( ts ),
     ord <- order( x )[ (nh+1): N ]
     x[ ord ] <- 0
     if( verbose )print( ts[ x != 0 ]*afreq*time )
+  }
+  if( !is.null( periods ) ){
+    
+    ti <- ts*afreq*time
+    
+    dd <- outer( ti, periods, function( x1, x2 ) ( x1 - x2 )^2 )
+    ip <- apply( dd, 2, which.min )
+    x[ -ip ] <- 0
   }
   
   i   <- complex(real = 0, imaginary = 1)
@@ -3237,11 +3344,100 @@ plotSpectrum <- function( x, afreq, xlim = c( 0, length(x)) ) {
   plot.data[,1] <- plot.data[,1]/afreq/2/pi
   plot.data[ 2:length( x), 2] <- 2*plot.data[2:length(x), 2] 
   
-  plot(plot.data, t = "h", lwd = 2, bty = 'n',
+  plot(plot.data, t = "h", lwd = 4, bty = 'n',
        xlab = "Frequency (time)", ylab = "Strength", 
        xlim = xlim, ylim = c(0, max( Mod(plot.data[,2]))))
 }
 
+
+surf2map <- function( x, y, z, colRamp = c('#a6611a','#dfc27d','#80cdc1','#018571'),
+                      xlim = NULL, ylim = NULL, zlim = NULL,
+                      xaxt = 's', yaxt = 's', 
+                      MAP = T, LEGEND = T,
+                      units = '', xleg = 'bottomright', 
+                      yleg = c( ylim[1] - .2, ylim[1] + 1 ) ){
+  
+  if( is.null( xlim ) ){
+    xlim = range( x ) + .1*c(-1, 1)
+    ylim = range( y ) + .1*c(-1, 1)
+  }
+  wx <- which( x >= xlim[1] & x <= xlim[2] )
+  x  <- x[ wx ]
+  wy <- which( y >= ylim[1] & y <= ylim[2] )
+  y  <- y[ wy ]
+  z  <- z[wx, wy]
+  
+  if( is.null( zlim ) )zlim <- range( z, na.rm = T ) + 1.2*c(-1, 1)
+  
+  z[ z > zlim[2] ] <- zlim[2]
+  
+  image( x, y, z, xlim = xlim, ylim = ylim, col = colRamp, bty = 'n', 
+         zlim = zlim, xlab = '', ylab = '', asp = 1, xaxt = xaxt, yaxt = xaxt,
+         add = F )
+  if( MAP ){
+    maps::map('world', xlim = xlim, ylim = ylim, add = T, lwd = 2.5, col = 'white' )
+    maps::map('world', xlim = xlim, ylim = ylim, add = T, lwd = 2, col = 'grey' )
+  }
+  
+  zlim <- round( zlim, -2 )
+  
+  if( LEGEND )
+    colorScaleLegend( xleg = xleg, yleg = yleg, 
+                      xlim = xlim, ylim = ylim, 
+                      zlim = zlim,units = units, 
+                      colorRamp = colRamp ) # in mastifFunctions.R
+}
+
+makeGrid <- function( xlim, ylim, by = 1, byy = by ){
+  
+  # if byy provided then can have different increment for x and y
+  
+  require( sf )
+  require( spData ) ## For `world`, an sf MULTIPOLYGON object
+ # require( spDataLarge )
+  require( terra )
+  
+  if( by < 1 ){
+    digits <- nchar( by ) - 1
+  }else{
+    digits <- nchar( by )
+  }
+  
+  # supplement grid
+  xlim[1] <- floor( xlim[1] ) - 1
+  xlim[2] <- ceiling( xlim[2] ) + 1
+  ylim[1] <- floor( ylim[1] ) - 1
+  ylim[2] <- ceiling( ylim[2] ) + 1
+  xgrid   <- round( seq( xlim[1], xlim[2], by = by ), digits )
+  ygrid   <- round( seq( ylim[1], ylim[2], by = byy ), digits )
+  xygrid  <- expand.grid( xgrid, ygrid ) 
+  colnames( xygrid ) <- c('lon','lat')
+  rownames(xygrid)   <- paste( 'E', xygrid[,1], 'N', xygrid[,2], sep = '' )
+  
+  ## Create an sf POINTS object
+  pts  <- st_as_sf(xygrid, coords=1:2, crs=4326)
+  stpt <- st_intersects(pts, world )
+  
+  wi   <- try( which( !is.na( as.numeric(stpt) ) ), silent = T )
+  
+  if( inherits( wi, 'try-error' ) ){
+    
+    countries <- geodata::world(path = tempdir())
+    
+    # make a polygon map delimiting the entire extent of the Earth:
+    earth <- terra::vect(terra::ext(), crs = "EPSG:4326")
+    # erase the countries (land parts) to get just the marine polygon:
+    marine <- terra::erase(earth, countries)
+    
+    stpt <- st_intersects(pts, sf::st_as_sf(marine) )
+    
+    #    sdf <- as.data.frame(stpt)
+    
+    wi   <- which( !is.na( as.numeric(stpt) ) )
+  }
+  
+  xygrid[wi,]
+}
 
 
 points2grid <- function( x, y, z = NULL, FUN = 'mean', nx = 50, ny = 50, 
