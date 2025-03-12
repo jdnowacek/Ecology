@@ -1,5 +1,15 @@
 ---
 title: "Kruger_ex_data"
-format: html
+format: pdf
 ---
+
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+x <- read.csv("xdata.csv")
+y <- read.csv("ydata.csv")
+```
 
