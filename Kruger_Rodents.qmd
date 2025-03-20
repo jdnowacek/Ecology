@@ -1,0 +1,227 @@
+---
+title: "Kruger_Rodents"
+format: html
+---
+
+```{r}
+library(foreach)
+library(doParallel)
+```
+
+```{r}
+load( 'rodentDataAll.rdata', verbose = T )
+
+# aggregate some related species with low numbers individually
+y$commonName[ grep( 'rock rat', y$commonName ) ] <- 'rock rat'
+y$commonName[ grep( 'multimammate mouse', y$commonName ) ] <- 'multimammate mouse'
+
+specTab   <- table( y$plot, y$commonName)
+specSum   <- colSums( specTab )
+specNames <- names( specSum )[ specSum > 5 ]
+nspec   <- length( specNames )
+
+specTab
+```
+
+```{r}
+n2M    <- 8                                      # scaling factor
+n.mcmc <- 2000                                   # no. MCMC iterations
+n.sim  <- 1000                                   # no. simulation locations for movement
+n.p    <- 100                                    # length of distance vector
+d.vec  <- seq(0, 40, length = n.p)               # distance vector for movement
+
+mu.beta   <- c(-2,-.002)                         # prior mean
+beta.tune <- c(.3,.0005)                         # SD for beta proposals
+s2.beta   <- c( .5, .4 )                         # prior variance
+
+fh       <- c( 'estimate', 'SE', 'CI_025', 'CI_975' )                      # includes 95% CI
+bnames   <- c(paste( 'B1', fh, sep = '.' ), paste( 'B2', fh, sep = '.' ) ) # beta estimates
+nnames   <- paste( 'N', fh, sep = '.' )                                    # population size
+pnames   <- paste( 'P', fh, sep = '.' )                                    # detection Pr
+qnames   <- paste( 'Psi', fh, sep = '.' )                                  # membership Pr
+dnames   <- paste( 'L', fh, sep = '.' )                                    # length scale
+capTimes <- paste( 'c', c(1:4), sep = '')                                  # times recaptured
+```
+
+```{r}
+plot <- "LTGran-13R"
+yj <- y[ y$commonName == "multimammate mouse" & y$plot == plot & y$year == 2024, ] # subset
+yt <- table( yj$trap, yj$id )                                                      # captures 
+lnames <- as.vector( t( outer( toupper( letters[1:5] ), 1:5, paste, sep = '' ) ) ) # grid names
+id <- colnames( yt )                                                               # individuals
+n  <- length( id )
+L  <- nrow( X )
+Y  <- matrix( 0, L, n, dimnames = list( lnames, id ) )               # where each ID caught
+Y[ rownames( yt ), colnames( yt ) ] <- yt                            # locations caught and not caught
+M  <- pmax( 20, n*n2M )                                              # potential pop size
+J  <- jmat[ plot, "2024" ]                                           # sampling bouts
+
+mapCapture( n, A, X, Y )                                             # generate maps
+```
+
+```{r}
+pvec <- logit.inv( mu.beta[1] + mu.beta[2]*d.vec^2 )
+plot( d.vec, pvec, type = 'l', bty = 'n', las = 1, lwd = 2, xlab = 'Distance (m)', ylab = 'Probability p' )
+```
+
+```{r}
+tmp <- fitModel( Y, J, M, X, A, n.mcmc, mu.beta, beta.tune, s2.beta, n.sim, mpath = '' ) # MCMC 
+out.1     <- tmp$out.1         # 1st stage output
+out.2.P   <- tmp$out.2.P       # 2nd stage output
+N.out.2.P <- tmp$N.out.2.P     # N estimates
+fit       <- tmp$fit           # summary
+
+par( bty = 'n', mar = c(2,4,1,1 ), omi = c(.5, .5, .5, .1) ) # MCMC chains
+layout( matrix( 1:6,3,2) )
+plot( out.1$beta.star[1,], type = "l", ylab = bquote( beta[0] ) , main = 'stage 1', xaxt = 'n' )
+plot( out.1$beta.star[2,], type = "l", ylab = bquote( beta[1] ), xaxt = 'n' )
+plot( out.1$psi.star, type="l", ylab = bquote( psi ) )
+plot( out.2.P$beta.save[1,], type="l", lty=1, ylab = '', main = 'stage 2', xaxt = 'n' )
+plot( out.2.P$beta.save[2,], type="l", lty=1, ylab = '', xaxt = 'n' )
+plot( out.2.P$psi.save, type="l", ylab = '' )
+mtext( 'MCMC iteration', side = 1, outer = T, line = 1 )
+```
+
+```{r}
+wn <- which( startsWith( colnames( fit ), 'N.' ) )
+fit[, wn]/.64
+```
+
+```{r}
+posteriorPlots( out.2.P, N.out.2.P, n, M )
+
+```
+
+```{r}
+wn <- which( startsWith( colnames( fit ), 'L.' ) )                # values
+fit[, wn]
+
+kernelPlot( P.2.P.mat, out.2.P )
+p0  <- logit.inv( fit$B1.estimate )/2                             # add to plot
+lci <- c( fit$L.CI_025, fit$L.estimate, fit$L.CI_975 )
+for( j in 1:3)lines( lci[ c(j, j ) ], c( 0, p0 ), lty = 2 )
+```
+
+```{r}
+# initialize to hold output:
+recap <- matrix( 0, 1, length(capTimes) , dimnames = list( NULL, capTimes ) )
+nvec  <- matrix( c( 0, 0, 0, NA ), 1, dimnames = list( NULL, nnames ) )
+bvec  <- matrix( NA, 1, 8, dimnames = list( NULL, bnames ) )
+pvec  <- matrix( NA, 1, 4, dimnames = list( NULL, pnames ) )
+qvec  <- matrix( NA, 1, 4, dimnames = list( NULL, qnames ) )
+lvec  <- matrix( NA, 1, 4, dimnames = list( NULL, dnames ) )
+powerDetect <- NA
+
+fit <- numeric( 0 )
+
+for( s in 1:nspec ){
+  
+  ws    <- which( y$commonName == specNames[s] )    # this species 
+  yspec <- y[ws , ]
+  plots <- sort( unique( yspec$plot ) )             # plots where observed
+  nplot <- length( plots )
+  
+  print( specNames[s] )
+  print( table( yspec$plot, yspec$year ) )          # distribution of observations
+  
+  for( k in 1:nplot ){
+    
+    yall <- unique( y$year[ y$plot == plots[k] ] )  # years observed on this plot
+    yrk  <- sort( unique( yspec$year ) )
+    if( length( yrk ) == 0 )next
+    
+    for( j in 1:length(yall) ){
+      
+      df <- numeric( 0 )                            # initialize data.frame for this species/plot/yr
+      yc <- as.character( yall[j] )
+      J  <- jmat[ plots[k], yc ]                    # sample occasions
+      wj <- which( yspec$year == yall[j] & yspec$plot == plots[k] )
+      
+      recap <- recap*0
+      
+      if( !yall[j] %in% yrk | length( wj ) == 0 ){          # placeholder if no captures
+        
+        df    <- data.frame( species = specNames[s], plot = plots[k], year = yall[j], J )
+        df$n <- 0
+        df   <- cbind( df, recap )
+        df   <- cbind( df, nvec, bvec, pvec, qvec, powerDetect, lvec )
+        
+      }else{
+        
+        yj <- yspec[drop = F, wj, ]
+        yt <- table( yj$trap, yj$id )                           # where observed
+        id <- colnames( yt )
+        n  <- length( id )
+        Y  <- matrix( 0, L, n, dimnames = list( lnames, id ) )  # observed and not observed
+        Y[ rownames( yt ), colnames( yt ) ] <- yt
+        M  <- pmax( 20, n*n2M )
+        
+        yy <- table( colSums(Y) )
+        names( yy ) <- paste( 'c', names(yy), sep = '') 
+        yy <- yy[ names( yy ) %in% capTimes ]
+        recap[ , names(yy) ] <- yy                              # times recaptured
+        
+        df <- data.frame( species = specNames[s], plot = plots[k], year = yall[j], J, n )
+        df <- cbind( df, recap )
+        
+        tmp <- fitModel( Y, J, M, X, A, n.mcmc, mu.beta, beta.tune, s2.beta, n.sim )
+        df  <- tmp$fit
+      }
+      fit <- rbind( fit, df )
+      print( tail( fit ) )
+    }
+  }
+}
+```
+
+```{r}
+wn      <- which( startsWith( colnames( fit ), 'N.' ) )
+density <- fit[, wn]/.64
+
+py <- paste( fit$plot, fit$year, sep = '_' )
+plotYears <- sort( unique( py ) )
+
+yMean <- matrix( 0, length( plotYears ), nspec, 
+                 dimnames = list( plotYears, specNames ) )
+ySE <- yMean
+yMean[ cbind( py, fit$species) ] <- density$N.estimate
+ySE[ cbind( py, fit$species) ]   <- density$N.SE
+xdata  <- data.frame( columnSplit( plotYears, '_' ) )
+colnames( xdata ) <- c('plot','year')
+
+plots <- sort( unique( xdata$plot ) )
+pnum  <- c(1:length(plots) )
+names( pnum ) <- plots
+
+years <- sort( unique( xdata$year ) )
+
+par( mfrow = c( nspec, 1 ), bty = 'n', mar = c(2,3,1,4), omi = c(.7,.5,.1,.1) )
+cols <- c('#8c510a', '#01665e' )
+for( j in 1:nspec ){
+  
+  wy <- which( xdata$year == years[1] )
+  nj <- length( wy )
+  xj <- pnum[ xdata$plot[wy] ] - .1
+  yj <- yMean[ wy, specNames[j] ]
+  ys <- ySE[ wy, specNames[j] ]
+  
+  ylim <- c(0, max( yMean[ wy, specNames[j] ] + ySE[ wy, specNames[j] ] ) )
+  
+  plot( xj, yj, xlim = c(1, length( plots ) ), ylim = ylim, pch = 3, lwd = 2,
+        xaxt = 'n', xlab = '', ylab = '', las = 1, col = cols[1] )
+  segments( xj, yj - ys, xj, yj + ys, lwd = 2, col = cols[1] )
+  axis(1, at = pnum, labels = F )
+  
+  wy <- which( xdata$year == years[2] )
+  xj <- pnum[ xdata$plot[wy] ] + .1
+  yj <- yMean[ wy, specNames[j] ]
+  ys <- ySE[ wy, specNames[j] ]
+  points( xj, yj, pch = 3, lwd = 2, col = cols[2] )
+  segments( xj, yj - ys, xj, yj + ys, lwd = 2, col = cols[2] )
+  title( specNames[j] )
+}
+axis( 1, at = pnum, labels = names( pnum ), las = 2 )
+mtext('per ha', 2, outer = T )
+legend( 'topleft', years, text.col = cols, bty = 'n' )
+```
+
