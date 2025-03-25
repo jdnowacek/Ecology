@@ -6,6 +6,10 @@ format: html
 ```{r}
 library(foreach)
 library(doParallel)
+
+mpath <- ''
+source('clarkFunctions2025.r')
+source('captureRecaptureFunctions.R')
 ```
 
 ```{r}
@@ -17,21 +21,46 @@ y$commonName[ grep( 'multimammate mouse', y$commonName ) ] <- 'multimammate mous
 
 specTab   <- table( y$plot, y$commonName)
 specSum   <- colSums( specTab )
-specNames <- names( specSum )[ specSum > 5 ]
+specNames <- names( specSum )[ specSum > 4 ]
 nspec   <- length( specNames )
 
 specTab
 ```
 
+## **Model elements**
+
+There will be an estimate of population size for each species 𝑠s at each plot 𝑘k in each of two years 𝑡t. Subscripts are needed to keep this straight. The estimate of population size is a **posterior distribution** for each species/plot/year, 𝑁𝑠,𝑘,𝑡Ns,k,t. There is uncertainty in this estimate that can be described by a **standard error (SE)** and **credible interval (CI)**. The SE is the standard deviation of the posterior distribution. The CI is the interior 95% of this distribution with 2.5% in the lower and upper tails.
+
+Again, the potential population size is selected to be larger than the number of individuals observed but still reasonable. If 𝑛𝑠,𝑘,𝑡ns,k,t individuals are observed, then I choose 𝑀𝑠,𝑘,𝑡=8×𝑛𝑠,𝑘,𝑡Ms,k,t=8×ns,k,t. The scaling factor is `n2M` = 8 in this example.
+
+The code used for the analysis uses Markov chain Monte Carlo (MCMC) to simulate a posterior distribution of estimates. Here are the objects it will generate:
+
+|                |                                        |
+|----------------|----------------------------------------|
+|                | Objects in this analysis               |
+| objects        | description                            |
+| N              | number of individuals                  |
+| beta_0, beta_1 | movement kernel parameters             |
+| p              | detection probability                  |
+| M              | potential pop size                     |
+| psi            | membership probability (fraction of M) |
+| movement scale | meters                                 |
+
+Each estimate will come in the form of MCMC chains, which can be combined to approximate marginal distributions for each parameter.
+
+## **Model fitting**
+
+As mentioned above, model fitting is by MCMC, which draws samples that are held as chains of values. It may be easiest to see this with an example. In the block below I set up some objects needed for the analysis:
+
 ```{r}
 n2M    <- 8                                      # scaling factor
-n.mcmc <- 2000                                   # no. MCMC iterations
+n.mcmc <- 200                                  # no. MCMC iterations
 n.sim  <- 1000                                   # no. simulation locations for movement
 n.p    <- 100                                    # length of distance vector
 d.vec  <- seq(0, 40, length = n.p)               # distance vector for movement
 
 mu.beta   <- c(-2,-.002)                         # prior mean
-beta.tune <- c(.3,.0005)                         # SD for beta proposals
+beta.tune <- c(.3,.0005)                         # SD for beta proposals (MCMC stuff)
 s2.beta   <- c( .5, .4 )                         # prior variance
 
 fh       <- c( 'estimate', 'SE', 'CI_025', 'CI_975' )                      # includes 95% CI
@@ -43,20 +72,25 @@ dnames   <- paste( 'L', fh, sep = '.' )                                    # len
 capTimes <- paste( 'c', c(1:4), sep = '')                                  # times recaptured
 ```
 
+Ordinarily I would set `n.mcmc` much larger than in this example, which executes quickly for illustration.
+
+## **Model for one species**
+
+Here I fit the model for one species/plot/year. I need to extract from `data.frame y` a 𝐿×𝑛L×n matrix 𝑌Y for each species-plot-year. I set up model elements and then generate maps for the grid showing capture locations for each individual.
+
 ```{r}
 plot <- "LTGran-13R"
 yj <- y[ y$commonName == "multimammate mouse" & y$plot == plot & y$year == 2024, ] # subset
 yt <- table( yj$trap, yj$id )                                                      # captures 
-lnames <- as.vector( t( outer( toupper( letters[1:5] ), 1:5, paste, sep = '' ) ) ) # grid names
 id <- colnames( yt )                                                               # individuals
 n  <- length( id )
 L  <- nrow( X )
-Y  <- matrix( 0, L, n, dimnames = list( lnames, id ) )               # where each ID caught
+Y  <- matrix( 0, L, n, dimnames = list( rownames(X), id ) )          # where each ID caught
 Y[ rownames( yt ), colnames( yt ) ] <- yt                            # locations caught and not caught
 M  <- pmax( 20, n*n2M )                                              # potential pop size
 J  <- jmat[ plot, "2024" ]                                           # sampling bouts
 
-mapCapture( n, A, X, Y )                                             # generate maps
+mapCapture( n, A, X, Y )                                              # generate maps
 ```
 
 ```{r}
@@ -65,7 +99,7 @@ plot( d.vec, pvec, type = 'l', bty = 'n', las = 1, lwd = 2, xlab = 'Distance (m)
 ```
 
 ```{r}
-tmp <- fitModel( Y, J, M, X, A, n.mcmc, mu.beta, beta.tune, s2.beta, n.sim, mpath = '' ) # MCMC 
+tmp <- fitModel( Y, J, M, X, A, n.mcmc, mu.beta, beta.tune, s2.beta, n.sim, mpath = mpath ) # MCMC 
 out.1     <- tmp$out.1         # 1st stage output
 out.2.P   <- tmp$out.2.P       # 2nd stage output
 N.out.2.P <- tmp$N.out.2.P     # N estimates
@@ -176,17 +210,16 @@ for( s in 1:nspec ){
 
 ```{r}
 wn      <- which( startsWith( colnames( fit ), 'N.' ) )
-density <- fit[, wn]/.64
+density <- fit[, wn]/.3
 
 py <- paste( fit$plot, fit$year, sep = '_' )
 plotYears <- sort( unique( py ) )
 
-yMean <- matrix( 0, length( plotYears ), nspec, 
-                 dimnames = list( plotYears, specNames ) )
-ySE <- yMean
+yMean <- matrix( 0, length( plotYears ), nspec, dimnames = list( plotYears, specNames ) )
+ySE   <- yMean
 yMean[ cbind( py, fit$species) ] <- density$N.estimate
 ySE[ cbind( py, fit$species) ]   <- density$N.SE
-xdata  <- data.frame( columnSplit( plotYears, '_' ) )
+xdata <- data.frame( columnSplit( plotYears, '_' ) )
 colnames( xdata ) <- c('plot','year')
 
 plots <- sort( unique( xdata$plot ) )
@@ -199,12 +232,11 @@ par( mfrow = c( nspec, 1 ), bty = 'n', mar = c(2,3,1,4), omi = c(.7,.5,.1,.1) )
 cols <- c('#8c510a', '#01665e' )
 for( j in 1:nspec ){
   
-  wy <- which( xdata$year == years[1] )
-  nj <- length( wy )
-  xj <- pnum[ xdata$plot[wy] ] - .1
-  yj <- yMean[ wy, specNames[j] ]
-  ys <- ySE[ wy, specNames[j] ]
-  
+  wy   <- which( xdata$year == years[1] )
+  nj   <- length( wy )
+  xj   <- pnum[ xdata$plot[wy] ] - .1
+  yj   <- yMean[ wy, specNames[j] ]
+  ys   <- ySE[ wy, specNames[j] ]
   ylim <- c(0, max( yMean[ wy, specNames[j] ] + ySE[ wy, specNames[j] ] ) )
   
   plot( xj, yj, xlim = c(1, length( plots ) ), ylim = ylim, pch = 3, lwd = 2,
@@ -224,4 +256,3 @@ axis( 1, at = pnum, labels = names( pnum ), las = 2 )
 mtext('per ha', 2, outer = T )
 legend( 'topleft', years, text.col = cols, bty = 'n' )
 ```
-
