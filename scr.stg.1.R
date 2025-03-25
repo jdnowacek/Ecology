@@ -107,4 +107,3 @@ for(k in 1:n.mcmc){
 list(n.mcmc = n.mcmc, beta.star = beta.star, psi.star = psi.star, a = a, b = b)
 
 }
-

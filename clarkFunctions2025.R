@@ -144,6 +144,36 @@ getMunicipality <- function(lonLat, collapse = T){
   data.frame( lonLat, geo[mm,], stringsAsFactors = F)
 }
 
+.shadeInterval <- function( xvalues, loHi, col = 'grey', PLOT = TRUE, add = TRUE, 
+          xlab = ' ', ylab = ' ', xlim = NULL, ylim = NULL, 
+          LOG = FALSE, trans = .5 ){
+  tmp <- NULL
+  
+  #draw shaded interval
+  
+  loHi <- as.matrix( loHi )
+  tmp  <- smooth.na( xvalues, loHi )
+  
+  xvalues <- tmp[, 1]
+  loHi    <- tmp[, -1]
+  
+  xbound <- c( xvalues, rev( xvalues ) )
+  ybound <- c( loHi[, 1], rev( loHi[, 2] ) )
+  if( is.null( ylim ) )ylim <- range( as.numeric( loHi ) )
+  if( is.null( xlim ) )xlim <- range( xvalues )
+  
+  if( !add ){
+    if( !LOG )plot( NULL, xlim = xlim, ylim = ylim, 
+                    xlab = xlab, ylab = ylab )
+    if( LOG )suppressWarnings( plot( NULL, xlim = xlim, ylim = ylim, 
+                                     xlab = xlab, ylab = ylab, log = 'y' ) )
+  }
+  
+  if( PLOT )polygon( xbound, ybound, border = NA, col = .getColor( col, trans ) )
+  
+  invisible( cbind( xbound, ybound ) )
+}
+
 cleanMunicipality <- function(mname){
   
   require(stringi)
@@ -164,6 +194,37 @@ cleanMunicipality <- function(mname){
   if(length(wspace) > 0)mname[wspace] <- substr(mname[wspace], 2, 10000)
   
   mname
+}
+
+.chain2tab <- function( chain, sigfigs = 3 ){
+  
+  if( !is.matrix( chain ) )chain <- matrix( chain, ncol = 1 )
+  
+  mu <- colMeans( chain )    
+  
+  SE <- apply( chain, 2, sd, na.rm=T )
+  CI <- apply( chain, 2, quantile, c( .025, .975 ), na.rm=T )
+  splus <- rep( ' ', length = length( SE ) )
+  splus[ CI[ 1, ] > 0 | CI[ 2, ] < 0] <- '*'
+  
+  tab <- cbind( mu, SE, t( CI ) )
+  tab <- signif( tab, sigfigs )
+  colnames( tab ) <- c( 'estimate', 'SE', 'CI_025', 'CI_975' )
+  tab <- as.data.frame( tab )
+  tab$sig95 <- splus
+  attr( tab, 'note' ) <- '* indicates that zero is outside the 95% CI'
+  
+  point <- grep( '.', rownames( tab ), fixed = T )  # re-insert dashes in species names
+  if( length( point ) > 0 ){
+    under <- grep( '_', rownames( tab )[point] )
+    if( length( under ) > 0 ){
+      ss <- columnSplit( rownames(tab)[ point[under] ], '_' )
+      sd <- .replaceString( ss[,1], '.', '-' )
+      rownames( tab )[ point[under] ] <- columnPaste( sd, ss[,2], '_' )
+    }else{
+      rownames( tab )[point] <- .replaceString( rownames( tab )[point], '.', '-' )
+    }
+  }
 }
 
 abb2state <- function(name, convert = T, strict = F, truncate = 100){

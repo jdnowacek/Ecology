@@ -29,6 +29,13 @@ fitModel <- function(Y, J, M, X, A, n.mcmc,
   
   logit.inv <- function(x){ exp(x)/(1+exp(x)) }
   
+  fh       <- c( 'estimate', 'SE', 'CI_025', 'CI_975' )                      # includes 95% CI
+  bnames   <- c(paste( 'B1', fh, sep = '.' ), paste( 'B2', fh, sep = '.' ) ) # beta estimates
+  nnames   <- paste( 'N', fh, sep = '.' )                                    # population size
+  pnames   <- paste( 'P', fh, sep = '.' )                                    # detection Pr
+  qnames   <- paste( 'Psi', fh, sep = '.' )                                  # membership Pr
+  dnames   <- paste( 'L', fh, sep = '.' )                 
+  
   n <- ncol( Y )
   L <- nrow( X )
   
@@ -73,6 +80,18 @@ fitModel <- function(Y, J, M, X, A, n.mcmc,
   
   nvec <- .chain2tab( unlist(N.2.P.parallel) )
   colnames( nvec ) <- paste( 'N', colnames( nvec ), sep = '.' )
+  
+  capTimes <- paste( 'c', c(1:4), sep = '')    
+  recap <- matrix( 0, 1, length(capTimes) , dimnames = list( NULL, capTimes ) )
+#  nvec  <- matrix( c( 0, 0, 0, NA ), 1, dimnames = list( NULL, nnames ) )
+  
+  yy <- table( colSums(Y) )
+  names( yy ) <- paste( 'c', names(yy), sep = '') 
+  yy <- yy[ names( yy ) %in% capTimes ]
+  recap[ , names(yy) ] <- yy                              # times recaptured
+  
+  df <- data.frame( J = J, n = n )
+  df <- cbind( df, recap )
   
   df <- cbind( df, nvec[, 1:4], bvec )
   
