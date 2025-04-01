@@ -179,7 +179,7 @@ legend( 'bottomright', c( 'riparian', 'granites' ), text.col = c( 'blue', 'grey'
 
 If the riparian and granites differ in the species they support, then I expect to see them aggregated with one another in these plots.
 
-![](images/Screenshot 2025-04-01 at 2.16.52 PM.png)
+![](images/Screenshot%202025-04-01%20at%202.16.52%20PM.png)
 
 ## **Dimension reduction**
 
