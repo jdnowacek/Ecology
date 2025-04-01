@@ -1,0 +1,282 @@
+---
+title: "Kruger_Birds"
+format: pdf
+---
+
+```{r}
+source('clarkFunctions2025.r')
+source('captureRecaptureFunctions.R')
+```
+
+# **Bird data**
+
+Birds are an important part of forest and grassland ecosystems, and they occur in sufficient abundance to offer insight on food webs. They function in food webs as granivores, frugivores, insectivores, carnivores (e.g., raptors), and scavengers. Bird diversity is high at KNP, including year-round residents and winter migrants from Eurasia.
+
+The OTS staff has collected bird point count data with the class, typically over four days per plot, each for 10 minutes. ID is visual and vocal. We’ll join them for sampling this week.
+
+## **Sample effort**
+
+Count data are often modeled as counts per effort, or **CPE**. This makes sense where the expected count scales (linearly) with the amount of effort. For example, the number of trees that I count is expected to increase with the area and/or number of plots. For trees, CPE is typically counts per area. This is **density**. In the small mammal example we estimated density using the capture-recapture model.
+
+If there is incomplete **detection**, the estimate of numbers can be count/detection probability. For crop counts on trees, the crop fraction is the detection, and the estimated seeds per tree is count count/crop fraction.
+
+In this bird example, we attempt to place the number of counts on a per-area basis. We want to acknowledge that there is a difference in detection probability between counts “in” (50 m radius) and “out” (100 m).
+
+The effort applied to counts differs for in and out. I’ll think of effort as observation time by area, i.e., counts per time-area. The effort of counts in-plot cover a distance of 50 m, or an area of:
+
+𝐴(𝑖)=𝜋502A(i)=π502
+
+The additional effort out-of-plot cover a distance between 50 m and 100 m, like a bagel, with area:
+
+𝐴(𝑜)=𝜋1002−𝐴(𝑖)A(o)=π1002−A(i)
+
+This is area in m22. I’ll take total effort to be area. I need to also allow for the fact that detection is lower for out than in–it is a larger distance. If detection out is only two thirds as good as in, then out needs a coefficient of 𝑑=0.67d=0.67:
+
+𝐸=(𝐴(𝑖)+𝑑⋅𝐴(𝑜))×ham2×minutes=ha⋅minutesE=(A(i)+d⋅A(o))×ham2×minutes=ha⋅minutes
+
+In this block I evaluate effort that combines in and out:
+
+```{r}
+detect <- .67
+eIn    <- round( pi*2500 )                       # area for in and out
+eOut   <- round( pi*10000 ) - eIn                # counted in are not included in out
+effort <- round( (eIn + detect*eOut)/10000, 4 )  # m2 to ha
+```
+
+## **Point counts**
+
+Point counts refer to counts obtained from a point location. Here I read in data:
+
+```{r}
+load( 'birdData2025.rdata', verbose = T )
+```
+
+These objects are observations by variables format. The three objects, `xdata`, `ydata`, and `ddata` have the same rows (and `rownames`) but different columns.
+
+An observation is a plot-year. The columns (variables in `ydata`) are counts (in plus out) by species. As with rodent data, these columns will be analyzed jointly. They are the responses in the model.
+
+The columns in `xdata` are variables related to observations that could be predictors, but not responses. The variables could differ by plot, year, or both. Because there is a small number of years, I have not included variables that change each year, such as climate anomalies. I have not included climate norms, because the sites are too close to one another to have substantial variation in climate norms. The vegetation structure varibles were not sampled in enough years to (many `NA`). In this example, observations vary by site, primarily soils and vegetation, but not year.
+
+The effort in days is contained in `ddata`. This object has the same columns as `ydata`, i.e., species, because, in principle, effort could differ by species. Suppose one species is twice as likely to be observed than another. Then the effective effort would be greater for highly visible species than for the cryptic species. In this example, effort does not vary between species. For this reason `ddata` has redundant columns.
+
+Finally, `sbyt` is a species by traits matrix that includes many of these species.
+
+To change units from observation days to observation effort, in day-ha, I can do this:
+
+```{r}
+eff <- ddata*effort
+eff
+```
+
+The object `eff` has the same dimension (𝑛×𝑆n×S) as `ddata` and `ydata`, but different units.
+
+# **Species rank abundance**
+
+Rank abundance curves are used to evaluate the species dominance in a community from highly skewed to a few species versus a more even distribution. I plot this rank-abundance on a catch-per-effort (CPE) scale here:
+
+```{r}
+# CPE
+specMean <- colMeans( ydata/eff, na.rm = T )
+specMean <- specMean[ order( specMean, decreasing = T ) ]
+n <- 10                                                    # label only abundant spp
+
+par( mfrow = c(1,2), bty = 'n', omi = c(.2,.4,.1,.1) )
+plot( specMean, type = 's', las = 1, xlab = '', ylab = '' )
+text( 1:n, specMean[ 1:n ], names( specMean )[1:n], pos = 4, cex = (1:n)^-.3 )
+title( 'CPE' )
+
+plot( specMean, type = 's', log = 'xy', las = 1, xlab = '', ylab = '' )
+title( 'log scale' )
+
+xloc <- sqrt( c(1:n)*(2:(n+1)) )
+text( xloc, .9*specMean[1:n], names( specMean )[1:n], srt = 90, pos = 2, cex = (1:n)^-.4 )
+mtext( 'Rank', 1, outer = T )
+mtext( 'Abundance', 2, outer = T )
+```
+
+**Exercise 1**: From the species by traits matrix and additional reading, determine which of the most abundant species are migrants and which are residents.
+
+## **Exploratory data analysis: NMDS**
+
+Non-metric multidimensional scaling (NMDS) is one of many multivariate exploratory methods that is used to extract structure. Here I generate a distance matrix from the covariance between species and two “predictors”, `tpi` (topographic position index) and `ph`, which tends to be lower on granites (but not by much). NMDS extracts new axes as combinations of the data. In this plot I evaluate a species distance matrix from the observations by plot `ydata` with two columns of `xdata`. Some species have the same values (zero distance), so I remove the redundancies. I then use `isoMDS` to extract major axes of variation. I plot axis 1 against axis 2 and then axis 3:
+
+```{r}
+library( MASS )
+pvars <- c('tpi', 'ph')
+ycov  <- cov( cbind( xdata[, pvars ], ydata ) ) # species by species covariance
+ydist <- cov2Dist( ycov )
+
+# find and remove redundant species
+ylower <- ydist
+ylower[ upper.tri( ylower, diag = T ) ] <- Inf
+zeros <- which( ylower == 0, arr.ind = T )
+ydist  <- ydist[ -zeros[,1], -zeros[,1] ]
+
+# NMDS
+tmp <- isoMDS( ydist, k = 3)
+```
+
+```{r}
+eVecs  <- tmp$points
+colnames(eVecs) <- paste('NMDS',c(1:3),sep = '_')
+
+# plot first 2 eigenvectors with most abundant species
+par(mfcol=c(1, 2), bty='n', mar=c(2,4,1,3), omi = c( .6, .1, .1, .1), xpd = T)
+sn <- names( specMean )[ 1:5 ]
+
+plot( eVecs[,1], eVecs[,2], cex=1, pch=16, xlab = 'axis 1', ylab = 'axis 2',
+      xaxt = 'n' ) 
+abline(h=0,col=.getColor('black',.3),lwd=2,lty=2)
+abline(v=0,col=.getColor('black',.3),lwd=2,lty=2)
+points( eVecs[ pvars, 1], eVecs[ pvars, 2 ], pch = 16, col = 'brown', cex = 1.1 )
+text( eVecs[ pvars, 1], eVecs[ pvars, 2 ], pvars, pos = 3, col = 'brown', cex = 1.1 )
+text( eVecs[ sn, 1], eVecs[ sn, 2 ], sn, pos = 2, col = 'darkgreen', cex = .7 )
+
+plot( eVecs[,1], eVecs[,3], cex=1, pch=16, xlab = 'axis 1', ylab = 'axis 3') 
+abline(h=0,col=.getColor('black',.3),lwd=2,lty=2)
+abline(v=0,col=.getColor('black',.3),lwd=2,lty=2)
+points( eVecs[ pvars, 1], eVecs[ pvars, 3 ], pch = 16, col = 'brown', cex = 1.1 )
+text( eVecs[ pvars, 1], eVecs[ pvars, 3 ], pvars, pos = 3, col = 'brown', cex = 1.1 )
+text( eVecs[ sn, 1], eVecs[ sn, 3 ], sn, pos = 2, col = 'darkgreen', cex = .7 )
+```
+
+In these plots I look for relationships between species and the two environmental variables, `tpi` and `ph`. The “outlying” variables are those the contribute most to these two axes of variation.
+
+By transposing `ydata` I can examine the relationships between plots:
+
+```{r}
+# repeat for plots (plot x plot )
+xcov  <- cov( t( ydata/eff ) )
+xdist <- cov2Dist( xcov )
+xlower <- xdist
+xlower[ upper.tri( xlower, diag = T ) ] <- Inf
+zeros <- which( xlower == 0 | is.na( xlower ), arr.ind = T )
+xdist  <- xdist[ -zeros[,1], -zeros[,1] ]
+
+tmp <- isoMDS( xdist , k = 3)
+```
+
+```{r}
+xvecs  <- tmp$points
+colnames(xvecs) <- paste('NMDS',c(1:3),sep = '_')
+
+# label habitat
+col <- rep( 'blue', nrow( xvecs ) )
+col[ grep( 'Gran', rownames( xvecs ) ) ] <- 'grey' 
+
+par( mfrow = c(1,2), bty = 'n', omi = c(.2,.4,.1,.1) )
+plot( xvecs[,1], xvecs[,2], cex=1, pch=16, xlab = 'axis 1', ylab = 'axis 2',
+      xaxt = 'n', col = col, xlim = c(-1,1) ) 
+abline(h=0,col=.getColor('black',.3),lwd=2,lty=2)
+abline(v=0,col=.getColor('black',.3),lwd=2,lty=2)
+
+plot( xvecs[,1], xvecs[,3], cex=1, pch=16, xlab = 'axis 1', ylab = 'axis 3', col = col) 
+abline(h=0,col=.getColor('black',.3),lwd=2,lty=2)
+abline(v=0,col=.getColor('black',.3),lwd=2,lty=2)
+legend( 'bottomright', c( 'riparian', 'granites' ), text.col = c( 'blue', 'grey' ),
+        bty = 'n')
+```
+
+If the riparian and granites differ in the species they support, then I expect to see them aggregated with one another in these plots.
+
+![](images/Screenshot 2025-04-01 at 2.16.52 PM.png)
+
+## **Dimension reduction**
+
+The problem is that ΣΣ is too big to estimate when there are many species. ΣΣ has dimensions 𝑆×𝑆S×S, where 𝑆S is the number of species. The number of unique elements to estimate is 𝑆(𝑆+1)/2S(S+1)/2. For three species there are only six elements. When there are 1000, there are 1/2 million. GJAM uses dimension reduction to find a much smaller version of ΣΣ by finding groups of species that tend to respond in common (Taylor-Rodriguez et al, [2017](https://projecteuclid.org/journals/bayesian-analysis/volume-12/issue-4/Joint-Species-Distribution-Modeling-Dimension-Reduction-Using-Dirichlet-Processes/10.1214/16-BA1031.full) ).
+
+When I run the this example in GJAM (\$S = \$ 73 species) I get this message
+
+`Note: Dimension reduced from 73 X 73 to 24 X 12 in Sigma`
+
+This means that the estimated elements in ΣΣ is reduced from 𝑆(𝑆+1)/2S(S+1)/2 = 2701 to 24×1224×12 = 288 elements. The extent to which this reduction can occur depends on the amount of structure in 𝑦y.
+
+## **Number of species to estimate**
+
+Many species will be too rare to estimate. There is no point in modeling the abundance of a species that is observed only one or even a few times. There can be no way to find a relationship with any of the predictors. In this example I locate only those species that are observed at least 5 times. I do this by removing columns in `ydata` and `eff`:
+
+```{r}
+library( gjam )
+trim <- gjamTrimY( ydata, minObs = 10, OTHER = F )
+y    <- trim$y                                         # trimmed to spp that occur 5 times
+e <- eff[, trim$colIndex ]                             # matching effort columns
+```
+
+## **GJAM analysis**
+
+Here’s an example analysis
+
+```{r}
+xdata$habitat <- as.factor( xdata$habitat )
+form <- as.formula( ~ tpi + habitat )
+```
+
+Here is an analysis with gjam:
+
+```{r}
+effort <- list( columns = 1:ncol( y ), values = e )
+ml     <- list(ng = 5000, burnin = 2000, typeNames = 'DA', effort = effort )
+out    <- gjam( formula = form, xdata, ydata = y, modelList = ml)
+summary( out )
+```
+
+```{r}
+trophic    <- sbyt[ colnames(y), 'TrophicNiche' ]
+specNames <- colnames( y )
+specColor <- rep('black',ncol(y))
+specColor[ trophic == 'Frugivore' ] <- '#d95f02'
+specColor[ trophic == 'Granivore' ]  <- '#377eb8'
+specColor[ trophic == 'Invertivore' ]  <- 'red'
+
+names( specColor ) <- trophic
+gjamPlot( out, list( PLOTALLY = T, GRIDPLOTS = T, specColor = specColor ) )
+```
+
+```{r}
+tnames <- c( "BeakWidth", "WingLength", "Mass", "Habitat", "Migration",  "TrophicNiche" )
+
+load( 'birdData2025.rdata' )
+xdata$habitat <- as.factor( xdata$habitat )
+
+# exclude missing traits
+wna <- which( is.na( sbyt ), arr.ind = T )
+wna <- unique( wna[,1] )
+y <- y[, -wna ]
+effort$columns <- effort$columns[ -wna ]
+effort$values  <- effort$values[ ,-wna ]
+
+sbyt   <- sbyt[ colnames(y), ]
+sbyt$Migration <- as.factor( sbyt$Migration )         # declare factors
+sbyt$Habitat   <- as.factor( sbyt$Habitat )
+sbyt$TrophicNiche <- as.factor( sbyt$TrophicNiche )
+
+ttypes <- c('CA', 'CA', 'CA', 'CAT', 'CAT', 'CAT' )  # variable types for traits
+
+tmp <- gjamSpec2Trait(y, sbyt, ttypes)
+tTypes      <- tmp$traitTypes                  # M = 15 values
+u           <- tmp$plotByCWM                   # n X M
+specByTrait <- tmp$specByTrait                 # S X M
+M           <- ncol(u)
+n           <- nrow(u)
+
+ml  <- list(ng = 3000, burnin = 500, typeNames = tTypes )
+out <- gjam( form, xdata = xdata, ydata = u, modelList = ml)
+
+tnames <- colnames(u)
+sc <- rep( 'black', M)                                  # highlight types
+wo <- grep( 'Habitat', tnames )     
+wf <- grep( "TrophicNiche", tnames )                             
+wm <- grep( "Migration", tnames )
+
+sc[wo] <- '#f46d43'
+sc[wf] <- '#005a32'
+sc[wm] <- '#253494'
+names( sc ) <- rep('size', M )
+names(sc)[ wo ] <- 'habitat'
+names(sc)[ wf ] <- 'trophic'
+names(sc)[ wm ] <- 'migration'
+
+pl  <- list(GRIDPLOTS = TRUE, PLOTALLY = T, specColor = sc)
+gjamPlot(output = out, plotPars = pl)
+
+```

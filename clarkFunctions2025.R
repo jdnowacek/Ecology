@@ -196,6 +196,7 @@ cleanMunicipality <- function(mname){
   mname
 }
 
+
 .chain2tab <- function( chain, sigfigs = 3 ){
   
   if( !is.matrix( chain ) )chain <- matrix( chain, ncol = 1 )
@@ -225,6 +226,14 @@ cleanMunicipality <- function(mname){
       rownames( tab )[point] <- .replaceString( rownames( tab )[point], '.', '-' )
     }
   }
+  xint <- grep( ':', colnames(chain), fixed = T )
+  if( length( xint ) > 0 ){
+    ss <- columnSplit( rownames(tab)[xint], '_' )
+    sd <- .replaceString( ss[,2], '.', ':' )
+    rownames( tab )[xint] <- columnPaste( ss[,1], sd, '_' )
+  }
+  
+  tab
 }
 
 abb2state <- function(name, convert = T, strict = F, truncate = 100){

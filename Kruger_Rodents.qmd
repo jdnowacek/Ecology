@@ -3,9 +3,12 @@ title: "Kruger_Rodents"
 format: html
 ---
 
+These functions are needed for this vignette:
+
 ```{r}
 library(foreach)
 library(doParallel)
+library(gjam)
 
 mpath <- ''
 source('clarkFunctions2025.r')
@@ -27,6 +30,84 @@ nspec   <- length( specNames )
 specTab
 ```
 
+# **For next time**
+
+Execute the analysis of our small data and answer questions at the end for discussion next time.
+
+# **Project questions**
+
+One of the biggest challenges with field studies involves articulating an important question that can be answered with the data collected. Imagine that each of the studies would be studied using data we could collect. In groups, select a topic and prepare a summary for small mammals, birds, or tree fecundity:
+
+1.  State the following:
+
+-   What’s the question
+
+-   Why it’s important (a few citations needed)
+
+-   What you will do
+
+-   Anticipated results (alternatives must be meaningful/informative)
+
+2.  describe a model in words:
+
+-   Describe an observation
+
+-   Describe the predictors that can be paired with each observation
+
+-   Describe a model
+
+**Recall**: Technical material in this class is intended for those who are interested in underlying methods. Others can simply skim technical sections for the broad ideas.
+
+# **Data analysis**
+
+The models we implement are mostly Bayesian. For an overview of **Bayesian analysis** taught in my course **ENV/BIO665 Bayesian analysis for environmental data** you can skim [this page](https://rpubs.com/jimclark/1135570). The model we use for rodent recaptures uses the binomial distribution. For those interested in the underlying model it is described in this box:
+
+**The binomial distribution** describes the number of successes (or failures) 𝑦y that arise from 𝑛n trials where the probability assigned to each draw is a parameter 𝑝p,
+
+𝑦∼𝑏𝑖𝑛𝑜𝑚(𝑛,𝑝)y∼binom(n,p)
+
+This equation says “𝑦y is distributed as a binomial with parameters 𝑛n and 𝑝p”. In the rodent analysis, the binomial also appears in another way: I know an individual is present if I observe it at least once in 𝐽J trap nights. This is one minus the probability of not observing it 𝐽J times, or (1−𝑝)𝐽(1−p)J. Suppose there are 𝑁N individuals. Here is notation for the binomial probability of observing an 𝑦y individuals at least once,
+
+\[𝑦\|𝑁,𝑝\]=𝑏𝑖𝑛𝑜𝑚(𝑁,1−(1−𝑝)𝐽)\[y\|N,p\]=binom(N,1−(1−p)J)
+
+The bracket notation on the left indicates an unspecified distribution with parameters 𝑁N and 𝑝p. Conversely, I could miss it entirely with probability (1−𝑝)𝐽(1−p)J.
+
+Here are examples of the binomial distribution:
+
+```{r}
+par( mfrow = c( 1, 2 ), bty = 'n', las = 1 )
+n  <- 12
+p  <- .5
+y  <- 0:n
+py <- dbinom( y, n, p )
+plot( y, py, type = 'h', lwd = 5, ylab = '[y|n, p]', main = 'no. successes in n trials')
+
+N  <- 20
+J  <- 3
+y  <- 0:N
+py <- dbinom( y, N, 1 - (1 - p)^J )
+plot( y, py, type = 'h', lwd = 5, ylab = '[y|N, J, p]', main = 'no. detected from N total in J trials')
+```
+
+## **Kruger small mammal data**
+
+The sampling grid is 5 by 5 traps placed at 10 m intervals. Here I load data from 2024/2025 and tabulate the species by plot. I also aggregate a two groups to genus level. I do this because they are difficult to identify to species level. This aggregation also increases the sample size, which is low.
+
+The objects in `rodentDataAll.rdata` are as follows:
+
+```{r}
+load( 'rodentDataAll.rdata', verbose = T )
+
+y$commonName[ grep( 'rock rat', y$commonName ) ] <- 'rock rat'
+y$commonName[ grep( 'multimammate mouse', y$commonName ) ] <- 'multimammate mouse'
+
+specTab   <- table( y$plot, y$commonName)
+specSum   <- colSums( specTab )
+specNames <- names( specSum )[ specSum > 2 ]
+nspec   <- length( specNames )
+specTab
+```
+
 ## **Model elements**
 
 There will be an estimate of population size for each species 𝑠s at each plot 𝑘k in each of two years 𝑡t. Subscripts are needed to keep this straight. The estimate of population size is a **posterior distribution** for each species/plot/year, 𝑁𝑠,𝑘,𝑡Ns,k,t. There is uncertainty in this estimate that can be described by a **standard error (SE)** and **credible interval (CI)**. The SE is the standard deviation of the posterior distribution. The CI is the interior 95% of this distribution with 2.5% in the lower and upper tails.
@@ -35,16 +116,7 @@ Again, the potential population size is selected to be larger than the number of
 
 The code used for the analysis uses Markov chain Monte Carlo (MCMC) to simulate a posterior distribution of estimates. Here are the objects it will generate:
 
-|                |                                        |
-|----------------|----------------------------------------|
-|                | Objects in this analysis               |
-| objects        | description                            |
-| N              | number of individuals                  |
-| beta_0, beta_1 | movement kernel parameters             |
-| p              | detection probability                  |
-| M              | potential pop size                     |
-| psi            | membership probability (fraction of M) |
-| movement scale | meters                                 |
+![](images/Screenshot%202025-03-27%20at%202.14.40%20PM.png){width="384"}
 
 Each estimate will come in the form of MCMC chains, which can be combined to approximate marginal distributions for each parameter.
 
@@ -54,22 +126,14 @@ As mentioned above, model fitting is by MCMC, which draws samples that are held 
 
 ```{r}
 n2M    <- 8                                      # scaling factor
-n.mcmc <- 200                                  # no. MCMC iterations
-n.sim  <- 1000                                   # no. simulation locations for movement
+n.mcmc <- 200                                   # no. MCMC iterations
+n.sim  <- 100                                  # no. simulation locations for movement
 n.p    <- 100                                    # length of distance vector
 d.vec  <- seq(0, 40, length = n.p)               # distance vector for movement
 
 mu.beta   <- c(-2,-.002)                         # prior mean
 beta.tune <- c(.3,.0005)                         # SD for beta proposals (MCMC stuff)
 s2.beta   <- c( .5, .4 )                         # prior variance
-
-fh       <- c( 'estimate', 'SE', 'CI_025', 'CI_975' )                      # includes 95% CI
-bnames   <- c(paste( 'B1', fh, sep = '.' ), paste( 'B2', fh, sep = '.' ) ) # beta estimates
-nnames   <- paste( 'N', fh, sep = '.' )                                    # population size
-pnames   <- paste( 'P', fh, sep = '.' )                                    # detection Pr
-qnames   <- paste( 'Psi', fh, sep = '.' )                                  # membership Pr
-dnames   <- paste( 'L', fh, sep = '.' )                                    # length scale
-capTimes <- paste( 'c', c(1:4), sep = '')                                  # times recaptured
 ```
 
 Ordinarily I would set `n.mcmc` much larger than in this example, which executes quickly for illustration.
@@ -90,13 +154,21 @@ Y[ rownames( yt ), colnames( yt ) ] <- yt                            # locations
 M  <- pmax( 20, n*n2M )                                              # potential pop size
 J  <- jmat[ plot, "2024" ]                                           # sampling bouts
 
-mapCapture( n, A, X, Y )                                              # generate maps
+mapCapture( n, A, X, Y )                                             # generate maps
 ```
+
+![](images/Screenshot%202025-03-27%20at%202.16.55%20PM.png)
 
 ```{r}
 pvec <- logit.inv( mu.beta[1] + mu.beta[2]*d.vec^2 )
 plot( d.vec, pvec, type = 'l', bty = 'n', las = 1, lwd = 2, xlab = 'Distance (m)', ylab = 'Probability p' )
 ```
+
+The values in `mu.beta` are prior values. I will combine these prior values with the data to come up with posterior estimates.
+
+Here is a fitted model with prior parameter values for `vector beta`, which holds the two values (𝛽0,𝛽1)(β0,β1):
+
+This model is fitted in two steps. In the figure below I am looking for good mixing in the chains, indicating that simulation has adequately summarized the posterior distribution. If chains show too much autocorrelation I can adjust `beta.tune`. These chains show good mixing:
 
 ```{r}
 tmp <- fitModel( Y, J, M, X, A, n.mcmc, mu.beta, beta.tune, s2.beta, n.sim, mpath = mpath ) # MCMC 
@@ -116,15 +188,27 @@ plot( out.2.P$psi.save, type="l", ylab = '' )
 mtext( 'MCMC iteration', side = 1, outer = T, line = 1 )
 ```
 
+A summary is held in the object `fit`, which includes the number of captures (`n`), captures once (`c1`), twice (`c2`), and so on. The estimates for (𝛽0,𝛽1)(β0,β1) are in the `fit` columns `B1.estimate, B1.SE, B1.CI_025, B1.CI_975`. There are also columns for parameters 𝑝p (`P`) and 𝜓ψ (`Psi`). For species/plot/year combinations with no captures (`n = 0`), there are no estimates.
+
+Population size (number of individuals in the grid) are in the `fit` columns `N.estimate, N.SE, N.CI_025, N.CI_975`.
+
+The population density estimate is 𝑁/𝐴N/A, where area 𝐴=50𝑚×60𝑚=0.3A=50m×60m=0.3 ha, i.e., the area bounded by matrix `A`. For this observation, the density estimate is:
+
 ```{r}
 wn <- which( startsWith( colnames( fit ), 'N.' ) )
-fit[, wn]/.64
+fit[, wn]/.3
 ```
+
+Here are plots of the posterior distribution.
 
 ```{r}
 posteriorPlots( out.2.P, N.out.2.P, n, M )
 
 ```
+
+The probability assigned to values of 𝑁N outside the interval (𝑛,𝑀)(n,M) is zero. Again, we know that there are at least 𝑛n individuals, and we have truncated the upper limit at 𝑀M.
+
+The movement kernel estimates (𝛽0,𝛽1)(β0,β1) are shown at left. The estimated kernel that is based on these estimtes has a length scale that can be summarized as the distance where values fall below a threshold. Here is the interval for the length scale, with the interval (15.3, 29.1) m:
 
 ```{r}
 wn <- which( startsWith( colnames( fit ), 'L.' ) )                # values
@@ -136,15 +220,41 @@ lci <- c( fit$L.CI_025, fit$L.estimate, fit$L.CI_975 )
 for( j in 1:3)lines( lci[ c(j, j ) ], c( 0, p0 ), lty = 2 )
 ```
 
+## **Fit all species**
+
+Below is a loop to fit all species/plot/year combinations. The pseudocode for this block is as follows:
+
+-   define objects to hold estimates
+
+-   **species loop**: find plots where species occurs
+
+    -   **plot loop**: find years for species-plot
+
+        -   **year loop**
+
+            -   construct `J`, `Y`, `n`, `M`
+
+            -   fit model
+
+            -   save objects to `fit`
+
 ```{r}
 # initialize to hold output:
-recap <- matrix( 0, 1, length(capTimes) , dimnames = list( NULL, capTimes ) )
+fh       <- c( 'estimate', 'SE', 'CI_025', 'CI_975' )                      # includes 95% CI
+bnames   <- c(paste( 'B1', fh, sep = '.' ), paste( 'B2', fh, sep = '.' ) ) # beta estimates
+nnames   <- paste( 'N', fh, sep = '.' )                                    # population size
+pnames   <- paste( 'P', fh, sep = '.' )                                    # detection Pr
+qnames   <- paste( 'Psi', fh, sep = '.' )                                  # membership Pr
+dnames   <- paste( 'L', fh, sep = '.' )                                    # length scale
+
 nvec  <- matrix( c( 0, 0, 0, NA ), 1, dimnames = list( NULL, nnames ) )
 bvec  <- matrix( NA, 1, 8, dimnames = list( NULL, bnames ) )
 pvec  <- matrix( NA, 1, 4, dimnames = list( NULL, pnames ) )
 qvec  <- matrix( NA, 1, 4, dimnames = list( NULL, qnames ) )
 lvec  <- matrix( NA, 1, 4, dimnames = list( NULL, dnames ) )
 powerDetect <- NA
+
+L <- nrow(X)
 
 fit <- numeric( 0 )
 
@@ -171,35 +281,25 @@ for( s in 1:nspec ){
       J  <- jmat[ plots[k], yc ]                    # sample occasions
       wj <- which( yspec$year == yall[j] & yspec$plot == plots[k] )
       
-      recap <- recap*0
-      
       if( !yall[j] %in% yrk | length( wj ) == 0 ){          # placeholder if no captures
         
-        df    <- data.frame( species = specNames[s], plot = plots[k], year = yall[j], J )
-        df$n <- 0
-        df   <- cbind( df, recap )
+        df   <- data.frame( species = specNames[s], plot = plots[k], year = yall[j], J, n = 0 )
+        df   <- cbind( df, c1 = 0, c2 = 0, c3 = 0, c4 = 0 )
         df   <- cbind( df, nvec, bvec, pvec, qvec, powerDetect, lvec )
         
       }else{
         
         yj <- yspec[drop = F, wj, ]
-        yt <- table( yj$trap, yj$id )                           # where observed
-        id <- colnames( yt )
+        yt <- table( yj$trap, yj$id )                                # where observed
+        id <- colnames( yt )                                         
         n  <- length( id )
-        Y  <- matrix( 0, L, n, dimnames = list( lnames, id ) )  # observed and not observed
+        Y  <- matrix( 0, L, n, dimnames = list( rownames(X), id ) ) # both observed and not observed
         Y[ rownames( yt ), colnames( yt ) ] <- yt
-        M  <- pmax( 20, n*n2M )
+        M  <- pmax( 20, n*n2M )                      
         
-        yy <- table( colSums(Y) )
-        names( yy ) <- paste( 'c', names(yy), sep = '') 
-        yy <- yy[ names( yy ) %in% capTimes ]
-        recap[ , names(yy) ] <- yy                              # times recaptured
-        
-        df <- data.frame( species = specNames[s], plot = plots[k], year = yall[j], J, n )
-        df <- cbind( df, recap )
-        
-        tmp <- fitModel( Y, J, M, X, A, n.mcmc, mu.beta, beta.tune, s2.beta, n.sim )
-        df  <- tmp$fit
+        df  <- data.frame( species = specNames[s], plot = plots[k], year = yall[j] )
+        tmp <- fitModel( Y, J, M, X, A, n.mcmc, mu.beta, beta.tune, s2.beta, n.sim, mpath = mpath )
+        df  <- cbind( df, tmp$fit )
       }
       fit <- rbind( fit, df )
       print( tail( fit ) )
@@ -207,6 +307,10 @@ for( s in 1:nspec ){
   }
 }
 ```
+
+# **Observations by variables**
+
+For analysis it’s helpful to format densities as observations by variables. An observation is a plot-year. Variables are species densities. Here are species by variables:
 
 ```{r}
 wn      <- which( startsWith( colnames( fit ), 'N.' ) )
@@ -221,38 +325,328 @@ yMean[ cbind( py, fit$species) ] <- density$N.estimate
 ySE[ cbind( py, fit$species) ]   <- density$N.SE
 xdata <- data.frame( columnSplit( plotYears, '_' ) )
 colnames( xdata ) <- c('plot','year')
+```
 
-plots <- sort( unique( xdata$plot ) )
-pnum  <- c(1:length(plots) )
-names( pnum ) <- plots
+### **Abundance**
 
-years <- sort( unique( xdata$year ) )
+Finally, we have estimates of abundance by species, plot, and year. Next time we can move forward to asking which variables are associated with abundance.
 
-par( mfrow = c( nspec, 1 ), bty = 'n', mar = c(2,3,1,4), omi = c(.7,.5,.1,.1) )
-cols <- c('#8c510a', '#01665e' )
-for( j in 1:nspec ){
-  
-  wy   <- which( xdata$year == years[1] )
-  nj   <- length( wy )
-  xj   <- pnum[ xdata$plot[wy] ] - .1
-  yj   <- yMean[ wy, specNames[j] ]
-  ys   <- ySE[ wy, specNames[j] ]
-  ylim <- c(0, max( yMean[ wy, specNames[j] ] + ySE[ wy, specNames[j] ] ) )
-  
-  plot( xj, yj, xlim = c(1, length( plots ) ), ylim = ylim, pch = 3, lwd = 2,
-        xaxt = 'n', xlab = '', ylab = '', las = 1, col = cols[1] )
-  segments( xj, yj - ys, xj, yj + ys, lwd = 2, col = cols[1] )
-  axis(1, at = pnum, labels = F )
-  
-  wy <- which( xdata$year == years[2] )
-  xj <- pnum[ xdata$plot[wy] ] + .1
-  yj <- yMean[ wy, specNames[j] ]
-  ys <- ySE[ wy, specNames[j] ]
-  points( xj, yj, pch = 3, lwd = 2, col = cols[2] )
-  segments( xj, yj - ys, xj, yj + ys, lwd = 2, col = cols[2] )
-  title( specNames[j] )
-}
-axis( 1, at = pnum, labels = names( pnum ), las = 2 )
-mtext('per ha', 2, outer = T )
-legend( 'topleft', years, text.col = cols, bty = 'n' )
+```{r}
+rcPlot( yMean, ySE, xdata )
+```
+
+## **Exercise 1**: The estimates of population density depend on the data.
+
+1.  How narrow must the CI be in order for an estimated density to be useful?
+
+2.  Which elements in the object `fit` give the deepest insights on the quality of estimates?
+
+3.  For plots with two years of data, what might explain changes from one year to the next?
+
+4.  Are the differences between granites and riparian larger or smaller than you expected? Say why.
+
+5.  If you were to increase sample effort to improve estimates would you enlarge the existing grids at the same plots, add more plots, or add more sample dates? How would benefits balance the added costs for each option?
+
+# **Biodiversity as species and traits**
+
+The numbers and abundances of species can offer insight on the habitat qualities that are important for biodiversity. For example, if most of the plant species in a plot are halophytes, then salinity may be a dominant control on plant diversity. If most of the rodents are fossorial, then protection from mid-day heat stress or predation may be important controls. If most of the plants use the CAM photosynthetic pathway or fix nitrogen, then moisture limitation or nitrogen limitation may be important, respectively. We can analyze the association between species abundance and environmental variables to yield sensitivity coefficients and predictive distributions for the species that could be abundant at locations that have not been sampled.
+
+**Community weighted mean (CWM)** traits summarize the prevalence of trait types for an assemblage of species, where the weights are species presence or, preferably, abundance.
+
+In the two sections that follow we use generalized joint attribute modeling (GJAM) to determine environmental variables that influence species abundance and the traits that those species possess.
+
+# **Generalized joint attribute modeling (GJAM)**
+
+GJAM analyzes the effects of environment on species as a joint distribution, allowing for the fact that species (and traits) may be measured in different ways. GJAM quantifies the association between abundances of species and environmental variables.
+
+Here I load the estimated species abundances in the 𝑛×𝑆n×S matrix `ydata` and the environmental predictors for the same observations in `xdata`:
+
+```{r}
+load( 'rodentDensityFiles2025.rdata', verbose = T )
+
+n     <- nrow( ydata )
+nspec <- ncol( ydata )
+specNames <- colnames( ydata )
+```
+
+The `rownames` for `xdata` and `ydata` indicate than an observation is a plot-year. The values in `ydata` are the mean abundances estimated in the foregoing section by the capture-recapture model.
+
+## **Response data types**
+
+Values in `ydata` are termed **continuous abundance** (`CA`) data in GJAM, because values greater than zero are continuous, but as with all abundance data, there can be zeros (none observed) and no negative values. Note how this contrasts with standard regression, which requires data that are continuous across the negative and positive real numbers.
+
+## **Predictors**
+
+Although `xdata` holds a number of potential predictors, we cannot use many predictors, because we have few observations, `n =` 18. Recall that the number of predictors has to be much smaller than the number of observations.
+
+Here’s an example model using habitat (granites versus riparian) and year. I start by declaring habitat to be a `factor`, and taking years since sampling began:
+
+```{r}
+xdata$habitat <- as.factor( xdata$habitat )
+xdata$year    <- xdata$year - 2024
+```
+
+## **Connect data to question and hypothesis**
+
+As a scientist or conservation manager I might have **questions** about how change in aridity affect small mammal populations or how habitat affects food supply. To answer these questions it would be efficient to have **hypotheses**, such as “If supply is high in moist riparian regions, then small mammal abundances might be …”. “Alternatively, …” \[alternative hypothesis\].
+
+**Exercise 2**: Provide a question and a hypothesis for: \* Habitat differences that affect small mammals. \* Changes in abundance from 2024 to 2025.
+
+## **Fitting a model**
+
+GJAM is a hierarchical Bayes model. It simulates a posterior distribution using MCMC. I must tell it the number of MCMC steps (`ng`) and the number of steps to discard before convergence occurs (`burnin`). I must also tell it the data `typeNames = 'CA'`. These arguments are included in `modelList`.
+
+I construct a model from the predictors `habitat` and `year` to create a `formula`. Here is an analysis with gjam:
+
+```{r}
+form      <- as.formula( ~ year + habitat )
+modelList <- list(ng = 5000, burnin = 2000, typeNames = 'CA' )
+out       <- gjam( formula = form, xdata = xdata, ydata = ydata, modelList = modelList )
+```
+
+Use this to view a summary:
+
+```{r}
+summary(out)
+```
+
+The `Coefficient matrix B` has positive values for predictors that are associated with high abundance, and vice versa.
+
+The `Coefficient matrix B as table` includes estimates, standard errors, the 95% CI and whether or not the CI includes zero (`sig95`).
+
+I can color code species in the plots. Colors could represent body size or diet (insectivores, granivores, …). Here are plots:
+
+```{r}
+family    <- specByTrait[ specNames, 'family' ]       # family for each species
+specColor <- rep('black',ncol(ydata))
+specColor[ family == 'Muridae' ]    <- '#d95f02'
+specColor[ family == 'Nesomyidae' ] <- '#377eb8'
+names( specColor ) <- specNames
+plotPars <- list( PLOTALLY = T, GRIDPLOTS = T, specColor = specColor )
+gjamPlot( out, plotPars )
+```
+
+The `list plotPars` includes several options:
+
+-   `PLOTALLY` - plot predicted versus observed for all species
+
+-   `GRIDPLOTS` - plot sensitivity and variance components as colored grids
+
+-   `specColor` - `character vector` of colors to shade species
+
+We’ll discuss these plots in class. Also, `browseVignettes('gjam')` provides many examples.
+
+**Exercise 3**: Use a different set of predictors, pose a hypothesis, and say why it is consistent with the analysis or not.
+
+![](images/Screenshot%202025-03-27%20at%202.31.56%20PM.png){width="532"}
+
+# **Trait model**
+
+Community weighted mean (CWM) traits provide insight on the shared traits that respond to the environment. CWM traits are necessarily interdependent (every species contributes to every CWM trait), so they must be analyzed jointly.
+
+If I have a sample of 𝑛n locations holding the abundances of each of 𝑆S species, then I can use a species ×× trait matrix to derive observations ×× traits. This observations ×× traits matrix can be analyzed for the effects of predictors on traits rather than predictors by species.
+
+## **Trait types: numeric and nominal (categorical)**
+
+Traits come in the form of diverse data types, and they cannot be treated the same. Some traits are continuous with positive and negative values, such as log body size. Others are restricted to positive values (e.g., body size). Still others are categories, like diet type, color, or behavioral. Sometimes categories are derived from ordinal scores, such as “absent”, “rare”, “intermediate”, “abundant”. In the examples that follow we consider several trait types.
+
+## **Species by trait matrix**
+
+The steps in a CWM analysis are:
+
+1.  Change abundance 𝑦y to relative abundance 𝑤w
+
+2.  Combine relative abundances of each species with a species ×× traits matrix to get CWM traits for each location.
+
+### **1. Relative abundance**
+
+The relative abundance of a species is its proportion of the total abundance at that location.
+
+**Relative abundance** is the species abundance 𝑦𝑖𝑠yis divided by total abundance for the site 𝑛𝑖=∑𝑠𝑦𝑖𝑠ni=∑syis:
+
+𝑤𝑖𝑠=1𝑛𝑖∑𝑠𝑦𝑖𝑠wis=1ni∑syis
+
+In other words, 𝑤𝑖𝑠wis is the relative abundance of species 𝑠s in observation 𝑖i.
+
+I can simulate a data set of counts and the relative abundance like this:
+
+```{r}
+n <- 12                    # no. locations
+S <- 10                   # no. species
+snames <- paste( 'S', 1:S, sep = '' )
+pbys   <- matrix( rpois( n*S, 5 ), n, S, dimnames = list( NULL, snames ) ) # Y
+W      <- sweep( pbys, MARGIN = 1, rowSums( pbys ), '/' )
+```
+
+To obtain relative abundance I used the `sweep function`, which sweeps across `MARGIN = 1` (rows, not columns) to obtain the `rowSums` and divides each value in the row (`/`) by the `rowSum`. To convince myself that the values are proportions of row total I can check that rowSums now equal to 1, `rowSums(W)`.
+
+![](images/Screenshot%202025-03-27%20at%202.34.16%20PM.png){width="684"}
+
+```{r}
+M <- 2    # no. traits
+tnames <- c( 'logBodySize', 'diet' )
+names( tnames )  <- c( 'CON', 'CAT' )
+diets <- c( 'carnivore', 'herbivore', 'omnivore' )
+
+sbyt <- data.frame( rnorm( S ), sample( diets, S, replace = T ) )           # V
+dimnames( sbyt ) <- list( snames, tnames )
+sbyt$diet <- factor( sbyt$diet )
+pbys <- matrix( rpois( n*S, 5 ), n, S, dimnames = list( NULL, snames ) )    # Y
+```
+
+So far, the `data.frame` for species looks like this:
+
+Note that I cannot analyze this `data.frame` because diet are categories (words, not numbers). So this is not yet the species by traits matrix that I need.
+
+In the `package gjam`, the species by traits matrix is generated by the function `gjamSpec2Trait`:
+
+```{r}
+tmp <- gjamSpec2Trait(pbys, sbyt, names( tnames ) )
+u           <- tmp$plotByCWM                   # n X M matrix U
+M           <- ncol(u) 
+specByTrait <- tmp$specByTrait                 # S X M matrix V
+tTypes      <- tmp$traitTypes                  # data type by column in u
+```
+
+However, there is an important difference between the first column, which is a continuous variable (`CON` in `gjam`) and the remaining three columns, which collectively sum to 1. These are **fractional composition** data (`FC` in `gjam`), because they sum to 1 (try this: `rowSums( u[,-1] )`. This sum-to-one property of fractional composition data places constraints on how they are analyzed.
+
+The data types for each column are held in the object `tTypes`.
+
+## **Traits for Kruger small mammals**
+
+In this block I extract trait columns, and I aggregate some of the trait types. Finally, I declare them to be factors.
+
+```{r}
+load( 'rodentDensityFiles2025.rdata', verbose = T )
+n     <- nrow( ydata )
+nspec <- ncol( ydata )
+specNames <- colnames( ydata )
+xdata$habitat <- as.factor( xdata$habitat )
+
+tnames <- c( "adult_mass_g", "det_invert", "det_fruit", "det_seed", "det_plantother"  )
+sbyt <- specByTrait[ specNames, tnames ]
+
+tTypes <- c('CA', 'FC', 'FC', 'FC', 'FC' )  # variable types for traits
+
+wfc <- which( tTypes == 'FC' )
+sbyt[ , wfc ] <- sweep( sbyt[, wfc ], 1, rowSums( sbyt[, wfc] ), '/' )
+
+tmp <- gjamSpec2Trait(ydata, sbyt, tTypes)
+tTypes      <- tmp$traitTypes                  # M = 15 values
+u           <- tmp$plotByCWM                   # n X M
+specByTrait <- tmp$specByTrait                 # S X M
+M           <- ncol(u)
+
+form <- as.formula( ~ year + habitat )
+modelList  <- list(ng = 3000, burnin = 500, typeNames = tTypes )
+out <- gjam( form, xdata = xdata, ydata = u, modelList = modelList)
+
+gjamPlot(output = out, list( PLOTALLY = T, GRIDPLOTS = T ) )
+summary(out)
+```
+
+The interpretation can now focus on traits rather than species.
+
+# **Recap**
+
+The analysis of species abundance provides insight on aspects of the habitat (predictors) and of the species that occupy it (traits) that can be important for biodiversity.
+
+**Joint analysis** as in GJAM takes into account the co-dependence between species abundances and traits.
+
+**Data** distribution is critical. Rare species, small sample sizes, limited coverage over important habitat variables can all preclude clear answers.
+
+In this example, the small sample size and limited coverage in space (riparian versus granites) and time (two years) both limit interpretation.
+
+# **Ex 3**
+
+# **Trait model**
+
+Community weighted mean (CWM) traits provide insight on the shared traits that respond to the environment. CWM traits are necessarily interdependent (every species contributes to every CWM trait), so they must be analyzed jointly.
+
+If I have a sample of 𝑛n locations holding the abundances of each of 𝑆S species, then I can use a species ×× trait matrix to derive observations ×× traits. This observations ×× traits matrix can be analyzed for the effects of predictors on traits rather than predictors by species.
+
+## **Trait types: numeric and nominal (categorical)**
+
+Traits come in the form of diverse data types, and they cannot be treated the same. Some traits are continuous with positive and negative values, such as log body size. Others are restricted to positive values (e.g., body size). Still others are categories, like diet type, color, or behavioral. Sometimes categories are derived from ordinal scores, such as “absent”, “rare”, “intermediate”, “abundant”. In the examples that follow we consider several trait types.
+
+## **Species by trait matrix**
+
+The steps in a CWM analysis are:
+
+1.  Change abundance 𝑦y to relative abundance 𝑤w
+
+2.  Combine relative abundances of each species with a species ×× traits matrix to get CWM traits for each location.
+
+### **1. Relative abundance**
+
+The relative abundance of a species is its proportion of the total abundance at that location.
+
+**Relative abundance** is the species abundance 𝑦𝑖𝑠yis divided by total abundance for the site 𝑛𝑖=∑𝑠𝑦𝑖𝑠ni=∑syis:
+
+𝑤𝑖𝑠=1𝑛𝑖∑𝑠𝑦𝑖𝑠wis=1ni∑syis
+
+In other words, 𝑤𝑖𝑠wis is the relative abundance of species 𝑠s in observation 𝑖i.
+
+I can simulate a data set of counts and the relative abundance like this:
+
+```{r}
+n <- 12                    # no. locations
+S <- 10                   # no. species
+snames <- paste( 'S', 1:S, sep = '' )
+pbys   <- matrix( rpois( n*S, 5 ), n, S, dimnames = list( NULL, snames ) ) # Y
+W      <- sweep( pbys, MARGIN = 1, rowSums( pbys ), '/' )
+```
+
+```{r}
+M <- 2    # no. traits
+tnames <- c( 'logBodySize', 'diet' )
+names( tnames )  <- c( 'CON', 'CAT' )
+diets <- c( 'carnivore', 'herbivore', 'omnivore' )
+
+sbyt <- data.frame( rnorm( S ), sample( diets, S, replace = T ) )           # V
+dimnames( sbyt ) <- list( snames, tnames )
+sbyt$diet <- factor( sbyt$diet )
+pbys <- matrix( rpois( n*S, 5 ), n, S, dimnames = list( NULL, snames ) )    # Y
+```
+
+```{r}
+library( gjam )
+tmp <- gjamSpec2Trait(pbys, sbyt, names( tnames ) )
+u           <- tmp$plotByCWM                   # n X M matrix U
+M           <- ncol(u) 
+specByTrait <- tmp$specByTrait                 # S X M matrix V
+tTypes      <- tmp$traitTypes                  # data type by column in u
+```
+
+```{r}
+load( 'rodentDensityFiles2025.rdata', verbose = T )
+n     <- nrow( ydata )
+nspec <- ncol( ydata )
+specNames <- colnames( ydata )
+xdata$habitat <- as.factor( xdata$habitat )
+
+tnames <- c( "adult_mass_g", "det_invert", "det_fruit", "det_seed", "det_plantother"  )
+sbyt <- specByTrait[ specNames, tnames ]
+
+tTypes <- c('CA', 'FC', 'FC', 'FC', 'FC' )  # variable types for traits
+
+wfc <- which( tTypes == 'FC' )
+sbyt[ , wfc ] <- sweep( sbyt[, wfc ], 1, rowSums( sbyt[, wfc] ), '/' )
+
+tmp <- gjamSpec2Trait(ydata, sbyt, tTypes)
+tTypes      <- tmp$traitTypes                  # M = 15 values
+u           <- tmp$plotByCWM                   # n X M
+specByTrait <- tmp$specByTrait                 # S X M
+M           <- ncol(u)
+
+form <- as.formula( ~ year + habitat )
+modelList  <- list(ng = 3000, burnin = 500, typeNames = tTypes )
+out <- gjam( form, xdata = xdata, ydata = u, modelList = modelList)
+
+gjamPlot(output = out, list( PLOTALLY = T, GRIDPLOTS = T ) )
+summary(out)
+```
+
+```{r}
+out$parameters
 ```

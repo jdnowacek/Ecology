@@ -18,6 +18,45 @@ crossdist <- function(S1,S2) {
   dist
 }
 
+
+rcPlot <- function( yMean, ySE, xdata ){
+  
+  specNames <- colnames( yMean )
+  nspec <- length( specNames )
+  plots <- sort( unique( xdata$plot ) )
+  pnum  <- c(1:length(plots) )
+  names( pnum ) <- plots
+  years <- sort( unique( xdata$year ) )
+  
+  par( mfrow = c( nspec, 1 ), bty = 'n', mar = c(2,3,1,4), omi = c(.7,.5,.1,.1) )
+  cols <- c('#8c510a', '#01665e' )
+  for( j in 1:nspec ){
+    
+    wy   <- which( xdata$year == years[1] )
+    nj   <- length( wy )
+    xj   <- pnum[ xdata$plot[wy] ] - .1
+    yj   <- yMean[ wy, specNames[j] ]
+    ys   <- ySE[ wy, specNames[j] ]
+    ylim <- c(0, max( yMean[ wy, specNames[j] ] + ySE[ wy, specNames[j] ] ) )
+    
+    plot( xj, yj, xlim = c(1, length( plots ) ), ylim = ylim, pch = 3, lwd = 2,
+          xaxt = 'n', xlab = '', ylab = '', las = 1, col = cols[1] )
+    segments( xj, yj - ys, xj, yj + ys, lwd = 2, col = cols[1] )
+    axis(1, at = pnum, labels = F )
+    
+    wy <- which( xdata$year == years[2] )
+    xj <- pnum[ xdata$plot[wy] ] + .1
+    yj <- yMean[ wy, specNames[j] ]
+    ys <- ySE[ wy, specNames[j] ]
+    points( xj, yj, pch = 3, lwd = 2, col = cols[2] )
+    segments( xj, yj - ys, xj, yj + ys, lwd = 2, col = cols[2] )
+    title( specNames[j] )
+  }
+  axis( 1, at = pnum, labels = names( pnum ), las = 2 )
+  mtext('per ha', 2, outer = T )
+  legend( 'topleft', years, text.col = cols, bty = 'n' )
+}
+
 fitModel <- function(Y, J, M, X, A, n.mcmc, 
                      mu.beta, beta.tune, s2.beta, n.sim, 
                      mpath = "/Volumes/research/clark/clark.unix/smallMammals/" ){
