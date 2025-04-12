@@ -49,7 +49,6 @@ images <- images |>
     common_name != "Domestic Cat",
     common_name != "Domestic Goat",
     common_name != "Pampas Deer"
-    
   )
 
 images <- images |>
@@ -68,13 +67,29 @@ images <- images |>
 
 # sum(is.na(images$genus))
 
-# counts <- images |>
-#   count(deployment_id, common_name, name = "n")
+counts <- images |>
+  count(deployment_id, common_name, name = "n")
+```
+
+```{r}
+# species_seen <- images |>
+#   distinct(deployment_site, common_name, hour) |>
+#   mutate(common_name = str_replace_all(common_name, " ", "_"), seen = 1) |>
+#   pivot_wider(
+#     names_from = common_name,
+#     values_from = seen,
+#     values_fill = 0,
+#     names_prefix = "seen_"
+#   )
+# 
+# images <- images |>
+#   left_join(species_seen, by = "deployment_site")
 ```
 
 ```{r}
 species_seen <- images |>
-  distinct(deployment_site, common_name) |>
+  mutate(common_name = str_replace_all(common_name, " ", "_")) |>
+  distinct(deployment_site, hour, common_name) |>
   mutate(seen = 1) |>
   pivot_wider(
     names_from = common_name,
@@ -83,13 +98,54 @@ species_seen <- images |>
     names_prefix = "seen_"
   )
 
+all_hours <- expand_grid(
+  deployment_site = unique(images$deployment_site),
+  hour = 0:23
+)
+
+species_seen_full <- all_hours |>
+  left_join(species_seen, by = c("deployment_site", "hour")) |>
+  mutate(across(starts_with("seen_"), ~replace_na(.x, 0)))
+
+species_totals <- images |>
+  mutate(common_name = str_replace_all(common_name, " ", "_")) |>
+  count(common_name, name = "total") |>
+  pivot_wider(
+    names_from = common_name,
+    values_from = total,
+    names_prefix = "total_"
+  )
+
 images <- images |>
-  left_join(species_seen, by = "deployment_site")
+  left_join(species_seen_full, by = c("deployment_site", "hour")) |>
+  mutate(across(starts_with("seen_"), ~replace_na(.x, 0))) |>
+  mutate(dummy = 1) |>
+  left_join(species_totals |> mutate(dummy = 1), by = "dummy") |>
+  select(-dummy)
+```
+
+## EDA
+
+```{r}
+images |>
+  select(starts_with("total_")) |>
+  pivot_longer(
+    cols = everything(),
+    names_to = "species",
+    values_to = "total"
+  ) |>
+  distinct() |>
+  mutate(species = str_remove(species, "^total_")) |>
+  filter(total > 10) |>
+  ggplot(aes(x = fct_reorder(species, total), y = total)) +
+  geom_col() +
+  theme_bw() +
+  coord_flip()
 ```
 
 ## Modeling
 
 ```{r}
-
+# glmmTMB(seen_African_Elephant ~ (1|deployment_site) + region + )
 ```
 
