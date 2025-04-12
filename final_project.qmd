@@ -1,0 +1,95 @@
+---
+title: "Final_Project"
+format: pdf
+editor: visual
+---
+## Packages
+```{r}
+library(tidyverse)
+library(glmmTMB)
+```
+
+## import
+
+```{r, message=F}
+deployments <- read_csv("deployments.csv")
+cameras <- read_csv("cameras.csv")
+images <- read_csv("images_2009198.csv")
+projects <- read_csv("projects.csv")
+```
+
+## wrangling
+
+```{r}
+images <- images |>
+  mutate(
+    region_name = str_to_lower(str_extract(deployment_id, "(?<=LT)[A-Za-z]+")),
+    region = case_when(
+      region_name == "sabie" ~ "s",
+      region_name == "gran" ~ "g",
+      TRUE ~ NA_character_
+    ),
+    hour = lubridate::hour(timestamp)
+  )
+
+images <- images |>
+  mutate(deployment_site = sub(" .*", "", deployment_id))
+
+images <- images |>
+  filter(
+    common_name != "White-tailed Deer",
+    common_name != "No CV Result",
+    common_name != "Domestic Cattle",
+    species != "caballus",
+    species != "catus",
+    species != "American Bison",
+    common_name != "Common Fallow Deer",
+    common_name != "Eastern Rockhopper Penguin",
+    common_name != "Domestic Dog",
+    common_name != "Domestic Cat",
+    common_name != "Domestic Goat",
+    common_name != "Pampas Deer"
+    
+  )
+
+images <- images |>
+  mutate(genus = ifelse(family == "Elephantidae", "Loxodonta", genus),
+         species = ifelse(family == "Elephantidae", "africana", species),
+         genus = ifelse(family == "Giraffidae", "giraffa", genus),
+         species = ifelse(family == "Giraffidae", "giraffa", species),
+         species = ifelse(genus == "Papio", "ursinus", species),
+         common_name = ifelse(common_name == "Kinda Baboon", "Chacma Baboon", common_name),
+         genus = ifelse(family == "Hippopotamidae", "Hippopotamus", genus),
+         species = ifelse(family == "Hippopotamidae", "amphibius", species),
+         common_name = ifelse(species == "ursinus", "Chacma Baboon", common_name),
+         common_name = ifelse(genus == "Loxodonta", "African Elephant", common_name),
+         common_name = ifelse(family == "Giraffidae", "Giraffe", common_name)
+         )
+
+# sum(is.na(images$genus))
+
+# counts <- images |>
+#   count(deployment_id, common_name, name = "n")
+```
+
+```{r}
+species_seen <- images |>
+  distinct(deployment_site, common_name) |>
+  mutate(seen = 1) |>
+  pivot_wider(
+    names_from = common_name,
+    values_from = seen,
+    values_fill = 0,
+    names_prefix = "seen_"
+  )
+
+images <- images |>
+  left_join(species_seen, by = "deployment_site")
+```
+
+## Modeling
+
+```{r}
+
+```
+
