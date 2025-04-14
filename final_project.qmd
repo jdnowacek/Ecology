@@ -7,6 +7,7 @@ editor: visual
 ```{r}
 library(tidyverse)
 library(glmmTMB)
+library(mlogit)
 ```
 
 ## import
@@ -127,7 +128,7 @@ images <- images |>
 ## EDA
 
 ```{r}
-images |>
+images_f <- images |>
   select(starts_with("total_")) |>
   pivot_longer(
     cols = everything(),
@@ -136,7 +137,9 @@ images |>
   ) |>
   distinct() |>
   mutate(species = str_remove(species, "^total_")) |>
-  filter(total > 10) |>
+  filter(total > 10) 
+
+images_f |>
   ggplot(aes(x = fct_reorder(species, total), y = total)) +
   geom_col() +
   theme_bw() +
@@ -146,6 +149,54 @@ images |>
 ## Modeling
 
 ```{r}
-# glmmTMB(seen_African_Elephant ~ (1|deployment_site) + region + )
+# images <- images |> 
+#   mutate(common_name = droplevels(common_name))
+
+images <- images |>
+  mutate(day = ifelse(hour <= 18 & hour >= 6, 1, 0))
+
+df_m_data <- images |>
+  filter(common_name %in% c("African Buffalo", "African Elephant", "Bushbuck",         
+ "Chacma Baboon",     "Common Duiker",     "Common Warthog",   
+ "Crested Francolin", "Giraffe" ,          "Greater Kudu" ,    
+ "Hippopotamus",      "Impala"   ,         "Plains Zebra"  ,   
+"Spotted Hyaena" ,   "Vervet Monkey" ,    "Waterbuck",        
+ "Wild Boar" ))
+
+df_m <- mlogit.data(df_m_data, choice = "common_name", shape = "wide")
+
+m <- 
+  mlogit(common_name ~ 1 | 
+           region + day + seen_Impala,  
+         data = df_m, reflevel = "African Elephant")
+
+
+
+summary(m)
+
+ # +
+ #           seen_Impala + seen_Chacma_Baboon + seen_African_Buffalo +
+ #           seen_Bushbuck + seen_Hippopotamus + seen_Common_Warthog +
+ #           seen_Waterbuck + seen_Vervet_Monkey + seen_Giraffe +
+ #           seen_Greater_Kudu + seen_Common_Duiker + seen_Wild_Boar +
+ #           seen_Crested_Francolin + seen_Spotted_Hyaena + seen_Plains_Zebra +
+ #           seen_Impala + seen_Chacma_Baboon + seen_African_Buffalo +
+ #           seen_Bushbuck + seen_Hippopotamus + seen_Common_Warthog +
+ #           seen_Waterbuck + seen_Vervet_Monkey + seen_Giraffe +
+ #           seen_Greater_Kudu + seen_Common_Duiker + seen_Wild_Boar +
+ #           seen_Crested_Francolin + seen_Spotted_Hyaena + seen_Plains_Zebra
 ```
+
+## Data Saving
+
+```{r}
+saveRDS(images, file = here::here("Data", "images.rds"))
+# saveRDS(full_stories_f, file = here::here("3 Clean data", "full_stories_f.rds"))
+
+```
+
+
+
+
+
 
